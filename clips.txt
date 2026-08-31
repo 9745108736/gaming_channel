@@ -1,0 +1,9 @@
+# Format:  START  END  LABEL
+# Labels pick the reaction clip later: gunfight, explosion, chase, fail, close_call, funny
+#
+# Hook text: add a line reading "title:" after a # and it gets burned
+# across the top for the first 3 seconds. It has to describe THIS clip -
+# nothing else in the pipeline knows what happens in the footage.
+# For example, a line like:   title: THEY AMBUSHED ME AT FALL'S END
+
+50:20   51:10   gunfight
