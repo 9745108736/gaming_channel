@@ -119,6 +119,13 @@ def score_clips(clips):
             + config.HOOK_AUDIO_WEIGHT * loud
         )
 
+    if config.COLD_OPEN_ENABLED:
+        # Leave the order alone. The strongest clip becomes the cold open
+        # teaser instead of being moved to the front - moving it opened
+        # the video well but took the moment out of sequence, so it never
+        # arrived again and the running order stopped being chronological.
+        return clips
+
     best = max(clips, key=lambda c: c.score)
     if best is clips[0]:
         return clips

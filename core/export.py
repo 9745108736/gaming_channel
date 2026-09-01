@@ -169,15 +169,46 @@ def text_y_expr(plan):
     return f"{ty}+({th}-text_h)/2"
 
 
-def build_hook_drawtext(title, plan):
-    """The opening hook: big, and only for the first few seconds."""
+def hook_windows(duration=None):
+    """
+    When the title is on screen: (start, end) pairs.
+
+    Opening hook, plus a reprise over the closing seconds so a viewer who
+    joined mid-video still learns what this is. Returns just the opener
+    when the video is too short to carry both without them colliding.
+    """
+    windows = [(0.0, float(config.HOOK_TEXT_DURATION))]
+    outro = float(config.HOOK_OUTRO_SECONDS or 0)
+    if duration and outro > 0:
+        start = duration - outro
+        # Needs to clear the opener with real gameplay in between,
+        # otherwise the title just blinks off and straight back on.
+        if start > config.HOOK_TEXT_DURATION + 1.0:
+            windows.append((start, duration))
+    return windows
+
+
+def hook_enable(duration=None):
+    """
+    ffmpeg enable expression for those windows.
+
+    between() yields 1 or 0 and the windows never overlap, so summing
+    them acts as OR.
+    """
+    return "+".join(
+        f"between(t,{a:.3f},{b:.3f})" for a, b in hook_windows(duration)
+    )
+
+
+def build_hook_drawtext(title, plan, duration=None):
+    """The hook: big, at the start and again over the closing seconds."""
     return _drawtext(
         title, text_y_expr(plan),
         size=config.HOOK_TEXT_SIZE,
         wrap=config.HOOK_TEXT_WRAP,
         max_lines=config.HOOK_TEXT_MAX_LINES,
         border=config.HOOK_TEXT_BORDER,
-        enable=f"between(t,0,{config.HOOK_TEXT_DURATION})",
+        enable=hook_enable(duration),
         what="hook text",
     )
 
@@ -215,16 +246,25 @@ def final_export(video_path, out_path, title=None, series=None,
     png = find_hook_overlay(title, series)
     has_hook = png is not None or bool(title and config.HOOK_TEXT_ENABLED)
 
+    # The title reprises over the closing seconds, so the export needs to
+    # know how long the video actually is.
+    duration = probe(video_path)["duration"]
+    windows = hook_windows(duration) if has_hook else []
+    outro_start = windows[1][0] if len(windows) > 1 else None
+
     vfilters, tempfiles = [], []
 
     if config.CAPTION_ENABLED:
         for start, end, text in (captions or []):
             if not text:
                 continue
-            # The hook owns the top zone for its first seconds, so hold
-            # the opening caption back rather than stacking them.
+            # The hook owns the top zone at both ends, so hold the opening
+            # caption back and cut the closing one short rather than
+            # stacking two lots of text in a zone that fits one.
             if has_hook:
                 start = max(start, config.HOOK_TEXT_DURATION)
+                if outro_start is not None:
+                    end = min(end, outro_start)
             if end - start < 0.5:
                 continue
             f, tmp = build_caption_drawtext(text, plan, start, end)
@@ -236,11 +276,13 @@ def final_export(video_path, out_path, title=None, series=None,
     if png is not None:
         note = f"PNG overlay {png.name}"
     elif title and config.HOOK_TEXT_ENABLED:
-        f, tmp = build_hook_drawtext(title, plan)
+        f, tmp = build_hook_drawtext(title, plan, duration)
         if f:
             vfilters.append(f)
             tempfiles.append(tmp)
             note = "drawtext"
+    if note != "none" and outro_start is not None:
+        note += f" (+reprise at {outro_start:.1f}s)"
 
     args = ["-i", str(video_path)]
 
@@ -250,7 +292,7 @@ def final_export(video_path, out_path, title=None, series=None,
         # top zone without having to probe the PNG first.
         ty, th = plan["text"]
         chain = (f"[0:v][1:v]overlay=(W-w)/2:{ty}+({th}-h)/2:"
-                 f"enable='between(t,0,{config.HOOK_TEXT_DURATION})'")
+                 f"enable='{hook_enable(duration)}'")
         chain += f",{','.join(vfilters)}[v]" if vfilters else "[v]"
         args += ["-filter_complex", chain, "-map", "[v]", "-map", "0:a?"]
     elif vfilters:

@@ -215,6 +215,13 @@ HOOK_AUDIO_WEIGHT = 0.4    # how much loudness matters
 # ---------------------------------------------------------------
 HOOK_TEXT_ENABLED = True
 HOOK_TEXT_DURATION = 3.0        # seconds on screen from the start
+
+# The title also comes back for the last few seconds. A viewer who joined
+# mid-video has no idea what they are watching otherwise, and the closing
+# frames are where they decide whether to follow. Set to 0 to disable.
+# The final caption is trimmed so the two never stack - the text zone
+# only has room for one of them.
+HOOK_OUTRO_SECONDS = 3.5
 HOOK_TEXT_FONT = "C:/Windows/Fonts/impact.ttf"
 HOOK_TEXT_SIZE = 78
 HOOK_TEXT_COLOR = "white"
@@ -315,3 +322,24 @@ CAPTION_MAX_LINES = 2
 # the series preset as "hashtags".
 # ---------------------------------------------------------------
 HASHTAGS_COMMON = ["#shorts", "#gaming", "#gameplay"]
+
+
+# ---------------------------------------------------------------
+# COLD OPEN
+# A short teaser cut from the strongest clip and played before the video
+# proper. The clip then plays AGAIN in its natural position, so the
+# teaser is a promise the video keeps rather than a moment the viewer
+# only ever sees once.
+#
+# This replaces reordering. Moving the best clip to the front put it
+# first but also took it out of sequence, so it never came back and the
+# running order stopped being chronological. With COLD_OPEN_ENABLED the
+# order is left alone and only the teaser is added.
+#
+# COLD_OPEN_FROM = "end" takes the payoff - the explosion, the kill -
+# which is what makes someone stay to see how it happened. "start" takes
+# the build-up instead, if you would rather not give it away.
+# ---------------------------------------------------------------
+COLD_OPEN_ENABLED = True
+COLD_OPEN_SECONDS = 2.5
+COLD_OPEN_FROM = "end"          # "end" or "start"

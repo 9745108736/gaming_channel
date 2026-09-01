@@ -357,6 +357,41 @@ def process_clip(source, clip, preset, out_path, reaction_video=None):
     return out_path
 
 
+def make_cold_open(clip_path, out_path, seconds, from_end=True):
+    """
+    Cut a short teaser out of an already-processed clip.
+
+    Re-encodes rather than stream copying. A copy would start at the
+    nearest keyframe instead of the exact point, and join.verify_matching
+    would then see a segment whose timebase does not line up with the
+    rest - which is the failure the whole normalize step exists to avoid.
+
+    The clip has already been graded and framed, so this only trims: the
+    teaser and the full clip look identical, as they must, since the
+    viewer sees the same moment twice.
+    """
+    total = probe(clip_path)["duration"]
+    seconds = min(float(seconds), total)
+    start = max(0.0, total - seconds) if from_end else 0.0
+
+    args = [
+        "-ss", f"{start:.3f}", "-i", str(clip_path),
+        "-t", f"{seconds:.3f}",
+        # Re-assert fps and timebase: xfade rejects mismatched inputs and
+        # this segment has to join cleanly with the untrimmed clips.
+        "-vf", f"fps={config.FPS},settb=AVTB",
+        "-ac", str(config.AUDIO_CHANNELS),
+        "-ar", str(config.SAMPLE_RATE),
+        "-c:a", config.AUDIO_CODEC,
+        "-b:a", config.AUDIO_BITRATE,
+        *video_quality_args(config.VIDEO_CODEC, config.PRESET,
+                            config.QUALITY, config.MAXRATE, config.BUFSIZE),
+        str(out_path),
+    ]
+    run_ffmpeg(args, description="cutting cold open teaser")
+    return out_path
+
+
 def ensure_audio(path, out_path, duration):
     """
     Add a silent audio track if a clip has none.

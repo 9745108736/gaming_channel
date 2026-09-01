@@ -105,10 +105,31 @@ def build_video(source, clips_file, series="default", name=None,
         if config.HOOK_DETECTION and len(clips) > 1:
             log("hook", "scoring clips by motion and loudness")
             clips = hook_mod.score_clips(clips)
-            log("hook", f"opening with clip '{clips[0].label}' "
-                        f"(score {clips[0].score:.2f})")
+            if not config.COLD_OPEN_ENABLED:
+                log("hook", f"opening with clip '{clips[0].label}' "
+                            f"(score {clips[0].score:.2f})")
 
         paths = [c.path for c in clips]
+        # Parallel to paths. The teaser has no caption of its own - the
+        # hook title covers it - so it gets a None placeholder to keep
+        # the caption spans lined up with the right clips.
+        caption_clips = list(clips)
+
+        # --- 2b. Cold open: teaser first, clip still plays in place ---
+        if (config.COLD_OPEN_ENABLED and config.COLD_OPEN_SECONDS
+                and len(clips) > 1):
+            best = max(clips, key=lambda c: c.score)
+            teaser = work / "cold_open.mp4"
+            process_mod.make_cold_open(
+                best.path, teaser, config.COLD_OPEN_SECONDS,
+                from_end=(config.COLD_OPEN_FROM == "end"),
+            )
+            paths.insert(0, teaser)
+            caption_clips.insert(0, None)
+            log("hook", f"cold open: {config.COLD_OPEN_SECONDS}s from the "
+                        f"{config.COLD_OPEN_FROM} of clip {best.index} "
+                        f"'{best.label}' (score {best.score:.2f}); that clip "
+                        f"still plays in full in its own place")
 
         # --- 3. Join ---
         joined = work / "joined.mp4"
@@ -137,7 +158,8 @@ def build_video(source, clips_file, series="default", name=None,
             tdur = float(preset.get("transition_duration", 0.4))
         spans = join_mod.clip_timeline([probe(p)["duration"] for p in paths], tdur)
         captions = [(s, e, c.caption)
-                    for (s, e), c in zip(spans, clips) if c.caption]
+                    for (s, e), c in zip(spans, caption_clips)
+                    if c is not None and c.caption]
         if captions:
             log("export", f"{len(captions)} of {len(clips)} clips have captions")
 
@@ -170,7 +192,7 @@ def build_video(source, clips_file, series="default", name=None,
 
         # --- 6. Reference files ---
         write_clip_log(out_dir / "clips_used.txt", source, clips, series, track_name)
-        write_seo_stub(out_dir / "seo.txt", series, clips)
+        write_seo(out_dir / "seo.txt", series, clips, title, track_name, source)
 
         info = probe(final)
         elapsed = time.time() - started
@@ -202,26 +224,52 @@ def write_clip_log(path, source, clips, series, track):
     path.write_text("\n".join(lines) + "\n")
 
 
-def write_seo_stub(path, series, clips):
+def write_seo(path, series, clips, title, track, source):
     """
-    Placeholder SEO file. The AI metadata module will fill this
-    automatically later - for now you write it yourself.
+    Assemble seo.txt from what you already wrote in clips.txt.
+
+    Nothing here is generated. The title and the captions are yours, the
+    labels come off the clip lines, and the hashtags come from config.
+    The pipeline cannot see the footage, so it has nothing of its own to
+    say about it - and a description that misdescribes the video costs
+    more than a blank one. Roadmap item 4, a vision model reading frames,
+    is what fills the rest.
     """
-    labels = ", ".join(sorted({c.label for c in clips}))
-    content = f"""TITLE:
+    preset = config.SERIES.get(series, {})
+    labels = sorted({c.label for c in clips})
 
+    tags = list(config.HASHTAGS_COMMON)
+    tags += [t for t in preset.get("hashtags", []) if t not in tags]
+    for label in labels:
+        tag = "#" + label.replace("_", "")
+        if tag not in tags:
+            tags.append(tag)
 
-DESCRIPTION:
+    captions = [c.caption for c in clips if c.caption]
 
+    lines = ["TITLE:"]
+    if title:
+        lines.append(title)
+    else:
+        lines.append("  (none - add a '# title:' line to your clips file)")
 
-HASHTAGS:
+    lines += ["", "DESCRIPTION:"]
+    if captions:
+        lines += captions
+    else:
+        lines.append("  (none - add quoted captions to your clip lines)")
 
-
----
-Series: {series}
-Moments in this video: {labels}
-"""
-    path.write_text(content)
+    lines += ["", "HASHTAGS:", " ".join(tags)]
+    lines += [
+        "",
+        "---",
+        f"Series: {series}",
+        f"Moments in this video: {', '.join(labels)}",
+        f"Clips: {len(clips)}",
+        f"Source: {source.name}",
+        f"Music: {track or 'none'}",
+    ]
+    path.write_text("\n".join(lines) + "\n")
 
 
 def main():
