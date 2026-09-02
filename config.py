@@ -2,6 +2,7 @@
 All settings live here. Change values in this file, not in the code.
 """
 
+import os
 from pathlib import Path
 
 # ---------------------------------------------------------------
@@ -13,6 +14,27 @@ RAW_DIR = ROOT / "raw"           # your gameplay recordings go here
 OUTPUT_DIR = ROOT / "output"     # finished videos come out here
 WORK_DIR = ROOT / ".work"        # temporary files, auto-deleted
 ASSETS = ROOT / "assets"
+
+
+def _load_env_file(path):
+    """
+    Read KEY=VALUE lines from .env into the environment.
+
+    A real environment variable always wins, so the file is a local
+    convenience and never overrides a deliberate export. .env is
+    gitignored - API keys must not end up in the repository.
+    """
+    if not path.exists():
+        return
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_env_file(ROOT / ".env")
 
 MUSIC_DIR = ASSETS / "music"        # music/tense, music/hype, music/chill
 OVERLAY_DIR = ASSETS / "overlays"   # your PNG text templates
@@ -89,7 +111,11 @@ TEXT_ZONE_SHARE = 0.34
 # ---------------------------------------------------------------
 LAYOUT_BLUR_BAND = "blur_band"
 LAYOUT_FACECAM_TOP = "facecam_top"
-DEFAULT_LAYOUT = LAYOUT_BLUR_BAND
+# facecam_top is the default: the face is on screen the whole video and
+# no frame space goes to blurred filler. It costs horizontal FOV - see
+# the note above - so blur_band stays available per series or with
+# --layout on a single run.
+DEFAULT_LAYOUT = LAYOUT_FACECAM_TOP
 
 FACECAM_HEIGHT = 0.20      # fraction of frame height for the top strip
 FACECAM_TEXT_BAND = 300    # px under the strip where hook and captions sit
@@ -145,7 +171,7 @@ SERIES = {
         "transition": "fade",
         "transition_duration": 0.4,
         "vertical_mode": "blur",      # "blur" or "crop"
-        "layout": LAYOUT_BLUR_BAND,
+        "layout": LAYOUT_FACECAM_TOP,
         "gameplay_height": None,      # None = use config.GAMEPLAY_HEIGHT
         "hook_text": None,
         "hashtags": [],               # e.g. ["#farcry5", "#ubisoft"]
@@ -158,7 +184,7 @@ SERIES = {
         "transition": "fade",
         "transition_duration": 0.3,
         "vertical_mode": "blur",
-        "layout": LAYOUT_BLUR_BAND,
+        "layout": LAYOUT_FACECAM_TOP,
         "gameplay_height": None,      # None = use config.GAMEPLAY_HEIGHT
         "hook_text": None,
         "hashtags": [],               # e.g. ["#farcry5", "#ubisoft"]
@@ -343,3 +369,20 @@ HASHTAGS_COMMON = ["#shorts", "#gaming", "#gameplay"]
 COLD_OPEN_ENABLED = True
 COLD_OPEN_SECONDS = 2.5
 COLD_OPEN_FROM = "end"          # "end" or "start"
+
+
+# ---------------------------------------------------------------
+# AI METADATA
+# Fills seo.txt: the title, description and hashtags you paste into
+# YouTube. It never writes the burned-in text on the video. A title
+# drawn on screen has to be right the first time, whereas seo.txt is a
+# draft you read before uploading - see rule 11 in CLAUDE.md.
+#
+# The key comes from .env (gitignored) or the environment. With no key
+# the render writes seo_prompt.txt and the sampled frames instead,
+# ready to paste into any AI by hand.
+# ---------------------------------------------------------------
+METADATA_AI_ENABLED = True
+METADATA_MODEL = "gemini-3.6-flash"
+METADATA_FRAMES = 4          # frames sampled across the finished video
+METADATA_TIMEOUT = 60        # seconds to wait for the API

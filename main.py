@@ -26,6 +26,7 @@ from core import audio as audio_mod
 from core import export as export_mod
 from core import hook as hook_mod
 from core import join as join_mod
+from core import metadata as metadata_mod
 from core import process as process_mod
 from core.clips import parse_clips_file, parse_title
 from core.ffmpeg_utils import FFmpegError, probe
@@ -36,7 +37,7 @@ def log(step, message):
 
 
 def build_video(source, clips_file, series="default", name=None,
-                keep_work=False, title=None):
+                keep_work=False, title=None, layout=None):
     source = Path(source)
     if not source.exists():
         raise FileNotFoundError(f"Recording not found: {source}")
@@ -46,6 +47,18 @@ def build_video(source, clips_file, series="default", name=None,
         available = ", ".join(config.SERIES.keys())
         raise ValueError(f"Unknown series '{series}'. Available: {available}")
 
+    # Copy before overriding: the presets are module level dicts, so
+    # writing into one would leak the override into every later run in
+    # the same process.
+    preset = dict(preset)
+    if layout:
+        known = (config.LAYOUT_BLUR_BAND, config.LAYOUT_FACECAM_TOP)
+        if layout not in known:
+            raise ValueError(
+                f"Unknown layout '{layout}'. Available: {', '.join(known)}"
+            )
+        preset["layout"] = layout
+
     # Most specific source of truth first. The series fallback is last
     # because a preset only knows how the video should LOOK - it cannot
     # know what happens in the footage, and a hook that misdescribes the
@@ -54,7 +67,8 @@ def build_video(source, clips_file, series="default", name=None,
 
     clips = parse_clips_file(clips_file)
     total_clip_time = sum(c.duration for c in clips)
-    log("input", f"{len(clips)} clips, {total_clip_time:.1f}s total, series '{series}'")
+    log("input", f"{len(clips)} clips, {total_clip_time:.1f}s total, "
+                 f"series '{series}', layout '{preset.get('layout')}'")
 
     # Sanity check against the source length
     source_info = probe(source)
@@ -192,7 +206,17 @@ def build_video(source, clips_file, series="default", name=None,
 
         # --- 6. Reference files ---
         write_clip_log(out_dir / "clips_used.txt", source, clips, series, track_name)
-        write_seo(out_dir / "seo.txt", series, clips, title, track_name, source)
+
+        # Drafts seo.txt from the finished video. Never touches the text
+        # burned into the video - that stays yours.
+        ai = None
+        if config.METADATA_AI_ENABLED:
+            log("seo", "drafting metadata from the finished video")
+            ai = metadata_mod.generate(final, out_dir, title, clips, series)
+            if ai:
+                log("seo", f"AI title: {ai['title']}")
+        write_seo(out_dir / "seo.txt", series, clips, title,
+                  track_name, source, ai)
 
         info = probe(final)
         elapsed = time.time() - started
@@ -224,7 +248,7 @@ def write_clip_log(path, source, clips, series, track):
     path.write_text("\n".join(lines) + "\n")
 
 
-def write_seo(path, series, clips, title, track, source):
+def write_seo(path, series, clips, title, track, source, ai=None):
     """
     Assemble seo.txt from what you already wrote in clips.txt.
 
@@ -248,21 +272,34 @@ def write_seo(path, series, clips, title, track, source):
     captions = [c.caption for c in clips if c.caption]
 
     lines = ["TITLE:"]
-    if title:
+    if ai and ai.get("title"):
+        lines.append(ai["title"])
+    elif title:
         lines.append(title)
     else:
         lines.append("  (none - add a '# title:' line to your clips file)")
 
     lines += ["", "DESCRIPTION:"]
-    if captions:
+    if ai and ai.get("description"):
+        lines += ai["description"]
+    elif captions:
         lines += captions
     else:
         lines.append("  (none - add quoted captions to your clip lines)")
 
-    lines += ["", "HASHTAGS:", " ".join(tags)]
+    lines += ["", "HASHTAGS:"]
+    lines.append(ai["hashtags"] if ai and ai.get("hashtags") else " ".join(tags))
+
     lines += [
         "",
         "---",
+        f"Written by: {'AI from the finished video' if ai else 'your clips file'}",
+    ]
+    if ai and title:
+        # Keep the owner's wording visible - the AI draft is a suggestion,
+        # and the on-screen hook still says this.
+        lines.append(f"Your title (on screen): {title}")
+    lines += [
         f"Series: {series}",
         f"Moments in this video: {', '.join(labels)}",
         f"Clips: {len(clips)}",
@@ -280,13 +317,17 @@ def main():
     parser.add_argument("--name", default=None, help="output folder name")
     parser.add_argument("--title", default=None,
                         help="hook text burned into the top of the video")
+    parser.add_argument("--layout", default=None,
+                        choices=[config.LAYOUT_FACECAM_TOP,
+                                 config.LAYOUT_BLUR_BAND],
+                        help="override the series layout for this run")
     parser.add_argument("--keep-work", action="store_true",
                         help="keep intermediate files for debugging")
     args = parser.parse_args()
 
     try:
         build_video(args.source, args.clips, args.series, args.name,
-                    args.keep_work, args.title)
+                    args.keep_work, args.title, args.layout)
     except (FFmpegError, ValueError, FileNotFoundError) as exc:
         print(f"\nERROR: {exc}\n", file=sys.stderr)
         sys.exit(1)
