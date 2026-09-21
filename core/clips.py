@@ -14,8 +14,12 @@ A clip may end with a quoted caption. It is shown in the top zone for
 that clip's whole time on screen, so the frame is not empty once the
 opening hook has gone. Captions are optional, per clip.
 
-Blank lines and lines starting with # are ignored, except "# title:",
-which sets the hook text burned across the top of the video.
+Blank lines and lines starting with # are ignored, except directives:
+
+    # title:   <hook text burned across the top of the video>
+    # game:    <which game, picks assets/logos/<slug>.png>
+    # context: <facts only you know: region, mission, what happened.
+    #           The metadata AI uses these instead of guessing.>
 
 The title lives here, next to the timestamps, because this file is the
 one place you describe THIS recording. A title has to match what is
@@ -45,27 +49,77 @@ class Clip:
         return self.end - self.start
 
 
-def parse_title(path):
+def parse_directive(path, name):
     """
-    Read the "# title:" directive out of a clips file, or None.
+    Read a "# <name>: value" directive out of a clips file, or None.
 
     Kept separate from parse_clips_file so the timestamp parsing keeps
-    its existing signature and callers opt in to the title.
+    its existing signature and callers opt in. parse_clips_file skips
+    every "#" line wholesale, so directives are invisible to it and
+    adding new ones breaks nothing.
+
+    The match on the name is case insensitive but the VALUE keeps its
+    original case, because a title is burned on screen exactly as
+    written.
     """
     path = Path(path)
     if not path.exists():
         return None
 
-    for raw in path.read_text().splitlines():
+    prefix = f"{name.lower()}:"
+    lines = path.read_text().splitlines()
+
+    for i, raw in enumerate(lines):
         line = raw.strip()
         if not line.startswith("#"):
             continue
         body = line.lstrip("#").strip()
-        if body.lower().startswith("title:"):
-            title = body[len("title:"):].strip()
-            if title:
-                return title
+        if not body.lower().startswith(prefix):
+            continue
+
+        value = body[len(prefix):].strip()
+        if not value:
+            return None
+
+        # Continuation lines: "#" followed by two or more spaces. A long
+        # context does not fit on one line, and an ordinary comment uses
+        # a single space, so the deeper indent keeps the two apart
+        # without swallowing the surrounding notes.
+        for follow in lines[i + 1:]:
+            if not re.match(r"^#[ \t]{2,}\S", follow):
+                break
+            value += " " + follow.lstrip("#").strip()
+        return value
+
     return None
+
+
+def parse_title(path):
+    """The "# title:" directive - the hook burned across the top."""
+    return parse_directive(path, "title")
+
+
+def parse_context(path):
+    """
+    The "# context:" directive - facts only the owner knows.
+
+    Region, mission, what actually happened, which part of a series.
+    The metadata model can read pixels but cannot know that a dark
+    forest road is Henbane River, so anything it is not told it would
+    have to guess - and a confidently wrong location in the description
+    is the same bait problem as a title that misdescribes the clip.
+    """
+    return parse_directive(path, "context")
+
+
+def parse_game(path):
+    """
+    The "# game:" directive - which game this recording is from.
+
+    Picks the logo out of assets/logos/ and tells the metadata model
+    what it is looking at instead of leaving it to guess from frames.
+    """
+    return parse_directive(path, "game")
 
 
 def parse_clips_file(path):

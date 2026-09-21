@@ -92,6 +92,49 @@ def wrap_title(text, width=None, max_lines=None):
     return _greedy_fill(words, width)[:max_lines]
 
 
+def chars_per_line(size, usable=None):
+    """
+    How many characters of the hook font fit across the frame.
+
+    A fixed character count cannot know how wide the glyphs actually
+    are. Measured against Impact at 78px, the old hardcoded 18 filled
+    only 59% of the frame width, so long titles lost their tail while
+    40% of the line sat empty. FONT_WIDTH_RATIO is the average glyph
+    width as a fraction of font size, so this scales with the size.
+    """
+    usable = usable or (config.WIDTH - 2 * config.TEXT_SIDE_MARGIN)
+    return max(6, int(usable / (config.FONT_WIDTH_RATIO * size)))
+
+
+def fit_text(text, size, max_lines, zone_h, min_size=None):
+    """
+    Wrap text so that EVERY word survives, shrinking the font to make it.
+
+    Returns (lines, fontsize).
+
+    The old behaviour dropped whatever did not fit and warned about it,
+    which still shipped a hook ending mid-sentence. Shrinking instead
+    means a long title just gets smaller, which is recoverable; losing
+    "SURVIVE PART 2" off the end is not.
+
+    Stops shrinking at min_size - past that the text is too small to
+    read on a phone, and letting it run away would trade one silent
+    failure for another.
+    """
+    min_size = min_size or config.TEXT_MIN_SIZE
+    words = str(text).split()
+    if not words:
+        return [], size
+
+    while True:
+        lines = _greedy_fill(words, chars_per_line(size))
+        # 1.18 leaves room for line spacing and descenders.
+        block_h = len(lines) * size * 1.18
+        if (len(lines) <= max_lines and block_h <= zone_h) or size <= min_size:
+            return lines, size
+        size = max(min_size, int(size * 0.9))
+
+
 def escape_filter_path(path):
     """
     Windows paths inside a filtergraph need the drive colon escaped, or
@@ -101,7 +144,8 @@ def escape_filter_path(path):
     return str(path).replace("\\", "/").replace(":", "\\:")
 
 
-def _drawtext(text, y_expr, size, wrap, max_lines, border, enable, what):
+def _drawtext(text, y_expr, size, wrap, max_lines, border, enable, what,
+              zone_h=None):
     """
     Build one drawtext filter, positioned by the layout plan.
     Returns (filter_string, temp_file_path) or (None, None).
@@ -117,20 +161,19 @@ def _drawtext(text, y_expr, size, wrap, max_lines, border, enable, what):
         print(f"  ! font not found, skipping {what}: {font}", flush=True)
         return None, None
 
-    lines = wrap_title(str(text).upper(), wrap, max_lines)
+    original_size = size
+    zone_h = zone_h or config.HEIGHT
+
+    # Fit by measured width, shrinking the font rather than dropping the
+    # tail. Losing the end of a title ships a hook that stops mid
+    # sentence; smaller text is merely smaller.
+    lines, size = fit_text(str(text).upper(), size, max_lines, zone_h)
     if not lines:
         return None, None
 
-    # The line cap can drop the tail of a long line. Say so - text that
-    # stops mid sentence is worse than short text, and dropping it
-    # silently is how it ships without anyone noticing.
-    kept = len(" ".join(lines).split())
-    given = len(str(text).split())
-    if kept < given:
-        dropped = " ".join(str(text).upper().split()[kept:])
-        print(f"  ! {what} too long, dropped: {dropped!r}", flush=True)
-        print(f"  ! shorten it, or raise the *_MAX_LINES / *_WRAP "
-              f"values in config.py", flush=True)
+    if size < original_size:
+        print(f"  ! {what} shrunk to {size}px to fit "
+              f"({len(lines)} lines, nothing dropped)", flush=True)
 
     # newline="" or Python's text mode turns every \n into \r\n on
     # Windows, and drawtext renders the stray carriage return as an
@@ -210,6 +253,7 @@ def build_hook_drawtext(title, plan, duration=None):
         border=config.HOOK_TEXT_BORDER,
         enable=hook_enable(duration),
         what="hook text",
+        zone_h=plan["text"][1],
     )
 
 
@@ -223,11 +267,31 @@ def build_caption_drawtext(text, plan, start, end):
         border=config.CAPTION_BORDER,
         enable=f"between(t,{start:.3f},{end:.3f})",
         what=f"caption {text!r}",
+        zone_h=plan["text"][1],
     )
 
 
+def find_game_logo(game):
+    """
+    assets/logos/<game-slug>.png for the game named in the clips file.
+
+    "Far Cry 5" looks for far_cry_5.png. Returns None when there is no
+    game or no matching file - a missing logo is skipped with a log
+    line, the same way a missing reaction clip or music track is.
+    """
+    if not game or not config.GAME_LOGO_ENABLED:
+        return None
+
+    slug = slugify(game)
+    for ext in (".png", ".webp"):
+        path = config.LOGO_DIR / f"{slug}{ext}"
+        if path.exists():
+            return path
+    return None
+
+
 def final_export(video_path, out_path, title=None, series=None,
-                 plan=None, captions=None):
+                 plan=None, captions=None, game=None):
     """
     Render the delivery file with the hook and any per-clip captions.
 
@@ -284,17 +348,60 @@ def final_export(video_path, out_path, title=None, series=None,
     if note != "none" and outro_start is not None:
         note += f" (+reprise at {outro_start:.1f}s)"
 
+    logo = find_game_logo(game)
+    if logo is not None:
+        note += f" +logo {logo.name}"
+
     args = ["-i", str(video_path)]
+
+    # Input indexes are positional, so they are counted rather than
+    # written literally: the logo is [1:v] on its own but [2:v] when a
+    # hook PNG is also present.
+    segments = []
+    stream = "[0:v]"
+    next_input = 1
 
     if png is not None:
         args += ["-i", str(png)]
         # h is the overlay's own height, so the graphic centres in the
         # top zone without having to probe the PNG first.
         ty, th = plan["text"]
-        chain = (f"[0:v][1:v]overlay=(W-w)/2:{ty}+({th}-h)/2:"
-                 f"enable='{hook_enable(duration)}'")
-        chain += f",{','.join(vfilters)}[v]" if vfilters else "[v]"
-        args += ["-filter_complex", chain, "-map", "[v]", "-map", "0:a?"]
+        segments.append(f"{stream}[{next_input}:v]overlay=(W-w)/2:"
+                        f"{ty}+({th}-h)/2:enable='{hook_enable(duration)}'"
+                        f"[hooked]")
+        stream = "[hooked]"
+        next_input += 1
+
+    if logo is not None:
+        args += ["-i", str(logo)]
+        width = int(config.WIDTH * config.LOGO_VIDEO_WIDTH) // 2 * 2
+        # Scaled to a fixed width so every game's logo lands the same
+        # size whatever the source file happens to be. -2 keeps the
+        # height even, which yuv420p requires.
+        segments.append(f"[{next_input}:v]scale={width}:-2[logo]")
+        # Only the opening window, not hook_enable's closing reprise:
+        # this is a title card, and by the end the viewer knows the game.
+        opening = hook_windows(duration)[0]
+        segments.append(
+            f"{stream}[logo]overlay=(W-w)/2:{plan['logo_y']}:"
+            f"enable='between(t,{opening[0]:.3f},{opening[1]:.3f})'[logoed]"
+        )
+        stream = "[logoed]"
+        next_input += 1
+
+    if segments:
+        if vfilters:
+            segments.append(f"{stream}{','.join(vfilters)}[v]")
+        else:
+            # Nothing follows the overlays, so relabel the last one's
+            # output to [v] instead of appending an empty filter.
+            segments[-1] = segments[-1][:-len(stream)] + "[v]"
+        # -map 0:a? is required here. The -vf branch below relies on
+        # ffmpeg's default stream selection to carry the audio; once we
+        # switch to -filter_complex it stops doing that, and the audio
+        # would be dropped without a word.
+        args += ["-filter_complex", ";".join(segments),
+                 "-map", "[v]", "-map", "0:a?"]
     elif vfilters:
         args += ["-vf", ",".join(vfilters)]
 
@@ -317,6 +424,95 @@ def final_export(video_path, out_path, title=None, series=None,
             Path(tmp).unlink(missing_ok=True)
 
     return out_path, note
+
+
+def render_thumbnail(source, timestamp, label, preset, out_path, game=None):
+    """
+    Build the thumbnail from the RAW recording at one chosen moment.
+
+    Not from the finished video. That frame carries blur bands, the
+    reaction cam and whatever caption happened to be up, all of which
+    eat pixels at channel-grid size. Cropping the raw 16:9 full bleed to
+    9:16 does lose the sides, but a thumbnail is one moment rather than
+    the whole scene, so filling the frame beats showing everything.
+
+    The label is drawn much larger than the video's own hook text: in a
+    grid the hook is far too small to read.
+    """
+    W, H = config.WIDTH, config.HEIGHT
+
+    parts = []
+    if preset.get("eq"):
+        # Same grade as the video, or the thumbnail misrepresents the look.
+        parts.append(f"eq={preset['eq']}")
+    parts.append(f"scale={W}:{H}:force_original_aspect_ratio=increase")
+    parts.append(f"crop={W}:{H}")
+
+    tmp = None
+    font = Path(config.HOOK_TEXT_FONT)
+    if label and font.exists():
+        band = int(H * 0.34)
+        # Same fitting as the video text: shrink rather than drop words.
+        lines, label_size = fit_text(str(label).upper(),
+                                     config.THUMBNAIL_LABEL_SIZE,
+                                     config.THUMBNAIL_LABEL_MAX_LINES,
+                                     band - 40)
+        if config.THUMBNAIL_SCRIM:
+            # Darken behind the text so it stays readable over a bright sky.
+            parts.append(f"drawbox=0:0:{W}:{band}:"
+                         f"color=black@{config.THUMBNAIL_SCRIM}:t=fill")
+
+        handle = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8", newline="")
+        handle.write("\n".join(lines))
+        handle.close()
+        tmp = handle.name
+        parts.append(
+            f"drawtext=fontfile='{escape_filter_path(font)}'"
+            f":textfile='{escape_filter_path(tmp)}'"
+            f":fontsize={label_size}"
+            f":fontcolor=white"
+            f":borderw={config.THUMBNAIL_LABEL_BORDER}:bordercolor=black"
+            f":line_spacing=14:text_align=C"
+            f":x=(w-text_w)/2:y=({band}-text_h)/2"
+        )
+
+    args = ["-ss", f"{timestamp:.3f}", "-i", str(source)]
+
+    logo = find_game_logo(game)
+    if logo is not None:
+        args += ["-i", str(logo)]
+
+    # -frames:v goes after EVERY -i. Options before an -i attach to that
+    # input, so with the logo added this would be read as "one frame of
+    # the logo" and ffmpeg rejects it outright. Same rule as -t in
+    # process.process_clip().
+    args += ["-frames:v", "1"]
+
+    if logo is None:
+        args += ["-vf", ",".join(parts)]
+    else:
+        # A second input means -filter_complex; -vf takes only one.
+        width = int(W * config.LOGO_THUMBNAIL_WIDTH) // 2 * 2
+        args += [
+            "-filter_complex",
+            f"[0:v]{','.join(parts)}[base];"
+            f"[1:v]scale={width}:-2[logo];"
+            # Bottom centre: the label scrim owns the top third, and the
+            # action sits in the middle, so the foot of the frame is the
+            # only place a logo does not cover something that matters.
+            f"[base][logo]overlay=(W-w)/2:H-h-{config.LOGO_THUMBNAIL_MARGIN}[v]",
+            "-map", "[v]",
+        ]
+
+    args += ["-update", "1", str(out_path)]
+
+    try:
+        run_ffmpeg(args, description="rendering thumbnail")
+    finally:
+        if tmp:
+            Path(tmp).unlink(missing_ok=True)
+    return out_path
 
 
 def extract_thumbnail(video_path, out_path, width=1080, height=1920):

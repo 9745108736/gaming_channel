@@ -58,6 +58,9 @@ def plan(mode=None, gameplay_height=None, facecam_height=None):
       cam_zone    (y, h) of the space the reaction cam occupies
       cam_style   "strip" - full width, always on
                   "bubble" - centred, bordered, sized by REACTION_HEIGHT
+      logo_y      y for the top of the game logo, directly under the
+                  text zone. Only on screen during the opening hook, so
+                  it is allowed to sit over the gameplay.
     """
     mode = mode or config.DEFAULT_LAYOUT
 
@@ -72,6 +75,7 @@ def plan(mode=None, gameplay_height=None, facecam_height=None):
             "text": (cam_h, config.FACECAM_TEXT_BAND),
             "cam_zone": (0, cam_h),
             "cam_style": "strip",
+            "logo_y": cam_h + config.FACECAM_TEXT_BAND + config.LOGO_VIDEO_GAP,
         }
 
     if mode != config.LAYOUT_BLUR_BAND:
@@ -93,4 +97,5 @@ def plan(mode=None, gameplay_height=None, facecam_height=None):
         "text": (0, top),
         "cam_zone": (bottom_y, usable_height() - bottom_y),
         "cam_style": "bubble",
+        "logo_y": top + config.LOGO_VIDEO_GAP,
     }

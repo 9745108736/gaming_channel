@@ -1,1 +1,7 @@
 /output/
+/.work/
+__pycache__/
+*.pyc
+
+# API keys live here and must never be committed.
+.env

@@ -28,7 +28,8 @@ from core import hook as hook_mod
 from core import join as join_mod
 from core import metadata as metadata_mod
 from core import process as process_mod
-from core.clips import parse_clips_file, parse_title
+from core.clips import (parse_clips_file, parse_title, parse_game,
+                        parse_context)
 from core.ffmpeg_utils import FFmpegError, probe
 
 
@@ -37,7 +38,7 @@ def log(step, message):
 
 
 def build_video(source, clips_file, series="default", name=None,
-                keep_work=False, title=None, layout=None):
+                keep_work=False, title=None, layout=None, game=None):
     source = Path(source)
     if not source.exists():
         raise FileNotFoundError(f"Recording not found: {source}")
@@ -64,6 +65,17 @@ def build_video(source, clips_file, series="default", name=None,
     # know what happens in the footage, and a hook that misdescribes the
     # clip costs more retention than no hook at all.
     title = title or parse_title(clips_file) or preset.get("hook_text")
+
+    # Which game this is. Picks the logo and tells the metadata model
+    # what it is looking at instead of leaving it to guess from frames.
+    game = game or parse_game(clips_file)
+    # Facts only you know - region, mission, what actually happened.
+    # The model can read pixels but cannot know where it is.
+    context = parse_context(clips_file)
+    logo = export_mod.find_game_logo(game)
+    if game:
+        log("input", f"game: {game}"
+                     f"{'  logo: ' + logo.name if logo else '  (no logo in assets/logos/)'}")
 
     clips = parse_clips_file(clips_file)
     total_clip_time = sum(c.duration for c in clips)
@@ -114,6 +126,48 @@ def build_video(source, clips_file, series="default", name=None,
             process_mod.process_clip(source, clip, preset, clip_path,
                                      reaction_video)
             clip.path = clip_path
+
+        # --- 1b. One AI pass over the cut clips ---
+        # Runs here, before any reordering, so the frame it picks for the
+        # thumbnail can be resolved to a real timestamp while the clip
+        # list is still in the order it analysed.
+        ai = None
+        if config.METADATA_AI_ENABLED:
+            log("ai", "reading the clips to write captions and metadata")
+            ai = metadata_mod.analyze(clips, out_dir, title, series, game,
+                                      context)
+
+        if ai:
+            if ai.get("best"):
+                ci, pos = ai["best"]
+                if 0 <= ci < len(clips):
+                    c = clips[ci]
+                    ai["best_timestamp"] = c.start + pos * c.duration
+                    log("ai", f"thumbnail frame from clip {ci + 1} "
+                              f"at {ai['best_timestamp']:.1f}s")
+            if config.METADATA_CAPTIONS:
+                written = 0
+                polish = config.CAPTION_MODE == "polish"
+                for i, clip in enumerate(clips):
+                    suggested = ai["captions"].get(i)
+                    if not suggested:
+                        continue
+                    if not clip.caption:
+                        clip.caption = suggested
+                        written += 1
+                    elif polish:
+                        # Your note carried the facts; this carries the
+                        # phrasing. Both are logged so a rewrite that
+                        # changed your meaning is visible, not silent.
+                        log("ai", f'  clip {i + 1} yours:     "{clip.caption}"')
+                        log("ai", f'  clip {i + 1} polished:  "{suggested}"')
+                        clip.caption = suggested
+                        written += 1
+                    elif suggested != clip.caption:
+                        log("ai", f'  clip {i + 1} suggested: "{suggested}"'
+                                  f"  (yours kept)")
+                log("ai", f"captions: {written} written, "
+                          f"{len(clips) - written} kept from your clips file")
 
         # --- 2. Hook detection, strongest clip goes first ---
         if config.HOOK_DETECTION and len(clips) > 1:
@@ -187,6 +241,7 @@ def build_video(source, clips_file, series="default", name=None,
             # cannot land somewhere the gameplay already is.
             plan=process_mod.clip_plan(preset),
             captions=captions,
+            game=game,
         )
         if hook_note == "none":
             # Silently shipping a Short with nothing in the first three
@@ -201,20 +256,31 @@ def build_video(source, clips_file, series="default", name=None,
         else:
             log("export", f"hook text: {hook_note}")
 
-        log("export", "extracting thumbnail")
-        export_mod.extract_thumbnail(final, out_dir / "thumbnail.png")
+        thumb = out_dir / "thumbnail.png"
+        if ai and ai.get("best_timestamp") is not None:
+            label = ai.get("thumbnail") or title
+            log("export", f"thumbnail: \"{label}\"")
+            export_mod.render_thumbnail(source, ai["best_timestamp"], label,
+                                        preset, thumb, game=game)
+        else:
+            # No AI pick - it was disabled, or the API was down. Use the
+            # highest scoring clip's midpoint rather than ffmpeg's
+            # representative frame: representative means statistically
+            # average, which is the opposite of what a thumbnail wants.
+            # Going through render_thumbnail also keeps the label and the
+            # game logo, which the plain frame grab has neither of.
+            best = max(clips, key=lambda c: c.score)
+            when = best.start + best.duration / 2
+            log("export", f'thumbnail: "{title}" from clip {best.index} '
+                          f"(no AI pick)")
+            export_mod.render_thumbnail(source, when, title, preset, thumb,
+                                        game=game)
 
         # --- 6. Reference files ---
         write_clip_log(out_dir / "clips_used.txt", source, clips, series, track_name)
 
-        # Drafts seo.txt from the finished video. Never touches the text
-        # burned into the video - that stays yours.
-        ai = None
-        if config.METADATA_AI_ENABLED:
-            log("seo", "drafting metadata from the finished video")
-            ai = metadata_mod.generate(final, out_dir, title, clips, series)
-            if ai:
-                log("seo", f"AI title: {ai['title']}")
+        if ai:
+            log("seo", f"AI title: {ai['title']}")
         write_seo(out_dir / "seo.txt", series, clips, title,
                   track_name, source, ai)
 
@@ -306,6 +372,14 @@ def write_seo(path, series, clips, title, track, source, ai=None):
         f"Source: {source.name}",
         f"Music: {track or 'none'}",
     ]
+
+    if ai and ai.get("captions"):
+        lines += ["", "AI CAPTION SUGGESTIONS",
+                  "(paste any of these into clips.txt to use them instead)"]
+        for i in sorted(ai["captions"]):
+            mark = "used" if clips[i].caption == ai["captions"][i] else "not used"
+            lines.append(f'  clip {i + 1}: "{ai["captions"][i]}"   [{mark}]')
+
     path.write_text("\n".join(lines) + "\n")
 
 
@@ -317,6 +391,9 @@ def main():
     parser.add_argument("--name", default=None, help="output folder name")
     parser.add_argument("--title", default=None,
                         help="hook text burned into the top of the video")
+    parser.add_argument("--game", default=None,
+                        help="game name; overrides the '# game:' line in "
+                             "the clips file and picks assets/logos/<slug>.png")
     parser.add_argument("--layout", default=None,
                         choices=[config.LAYOUT_FACECAM_TOP,
                                  config.LAYOUT_BLUR_BAND],
@@ -327,7 +404,7 @@ def main():
 
     try:
         build_video(args.source, args.clips, args.series, args.name,
-                    args.keep_work, args.title, args.layout)
+                    args.keep_work, args.title, args.layout, args.game)
     except (FFmpegError, ValueError, FileNotFoundError) as exc:
         print(f"\nERROR: {exc}\n", file=sys.stderr)
         sys.exit(1)

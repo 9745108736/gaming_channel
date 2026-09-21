@@ -40,6 +40,7 @@ MUSIC_DIR = ASSETS / "music"        # music/tense, music/hype, music/chill
 OVERLAY_DIR = ASSETS / "overlays"   # your PNG text templates
 REACTION_DIR = ASSETS / "reactions" # surprise.mp4, laugh.mp4, etc.
 LUT_DIR = ASSETS / "luts"           # .cube color grade files
+LOGO_DIR = ASSETS / "logos"         # far_cry_5.png, ghost_recon_wildlands.png
 
 
 # ---------------------------------------------------------------
@@ -115,7 +116,7 @@ LAYOUT_FACECAM_TOP = "facecam_top"
 # no frame space goes to blurred filler. It costs horizontal FOV - see
 # the note above - so blur_band stays available per series or with
 # --layout on a single run.
-DEFAULT_LAYOUT = LAYOUT_FACECAM_TOP
+DEFAULT_LAYOUT = LAYOUT_BLUR_BAND
 
 FACECAM_HEIGHT = 0.20      # fraction of frame height for the top strip
 FACECAM_TEXT_BAND = 300    # px under the strip where hook and captions sit
@@ -171,7 +172,7 @@ SERIES = {
         "transition": "fade",
         "transition_duration": 0.4,
         "vertical_mode": "blur",      # "blur" or "crop"
-        "layout": LAYOUT_FACECAM_TOP,
+        "layout": LAYOUT_BLUR_BAND,
         "gameplay_height": None,      # None = use config.GAMEPLAY_HEIGHT
         "hook_text": None,
         "hashtags": [],               # e.g. ["#farcry5", "#ubisoft"]
@@ -184,7 +185,7 @@ SERIES = {
         "transition": "fade",
         "transition_duration": 0.3,
         "vertical_mode": "blur",
-        "layout": LAYOUT_FACECAM_TOP,
+        "layout": LAYOUT_BLUR_BAND,
         "gameplay_height": None,      # None = use config.GAMEPLAY_HEIGHT
         "hook_text": None,
         "hashtags": [],               # e.g. ["#farcry5", "#ubisoft"]
@@ -197,7 +198,7 @@ SERIES = {
         "transition": "fadeblack",
         "transition_duration": 0.5,
         "vertical_mode": "blur",
-        "layout": LAYOUT_FACECAM_TOP,
+        "layout": LAYOUT_BLUR_BAND,
         "gameplay_height": None,      # None = use config.GAMEPLAY_HEIGHT
         "hook_text": None,
         "hashtags": [],               # e.g. ["#farcry5", "#ubisoft"]
@@ -252,7 +253,20 @@ HOOK_TEXT_FONT = "C:/Windows/Fonts/impact.ttf"
 HOOK_TEXT_SIZE = 78
 HOOK_TEXT_COLOR = "white"
 HOOK_TEXT_BORDER = 6            # black outline, keeps it legible on any frame
-HOOK_TEXT_WRAP = 18             # characters per line before wrapping
+# Average glyph width as a fraction of font size, measured against
+# Impact with real titles ("CULTIST ROADBLOCK" = 634px at size 78).
+# export.chars_per_line() uses it to fill the frame properly instead of
+# guessing a character count - the old fixed 18 used 59% of the width
+# and silently dropped the end of longer titles.
+FONT_WIDTH_RATIO = 0.47
+TEXT_SIDE_MARGIN = 55           # px kept clear at each edge
+# Floor for the auto-shrink. Low enough that a long caption keeps
+# shrinking instead of spilling extra lines over the gameplay - at 46
+# there were only 6px of room below CAPTION_SIZE, so the guard was doing
+# almost nothing and a long caption overflowed the text zone by 79px.
+TEXT_MIN_SIZE = 34
+
+HOOK_TEXT_WRAP = 18             # only a fallback; fit_text measures instead
 HOOK_TEXT_MAX_LINES = 2
 
 
@@ -383,6 +397,81 @@ COLD_OPEN_FROM = "end"          # "end" or "start"
 # ready to paste into any AI by hand.
 # ---------------------------------------------------------------
 METADATA_AI_ENABLED = True
-METADATA_MODEL = "gemini-3.6-flash"
-METADATA_FRAMES = 4          # frames sampled across the finished video
-METADATA_TIMEOUT = 60        # seconds to wait for the API
+# Primary model, then the fallback chain. Probed live against this key
+# with a REAL 6-frame payload on 02/09/26, not assumed:
+#   gemini-3.5-flash-lite   3.4s  ok
+#   gemini-3.1-flash-lite   4.6s  ok
+#   gemini-3.6-flash       10.5s  ok, but times out on most runs
+#   gemini-3.8-flash          -   503, tier saturated
+#   gemini-3.7-flash          -   timed out at 60s
+#   gemini-2.5-flash-lite     -   404, retired
+#
+# The -lite model leads DESPITE the flash models writing slightly richer
+# titles. Flash was primary until it cost a render 294 seconds sitting
+# through two 90s timeouts before succeeding on its third attempt - the
+# fallback chain worked, it was just slow. Lite is 3x faster, sits on a
+# separate quota bucket, and answers when the flash tier is saturated.
+# Flash stays in the chain, further down, for when lite is the one down.
+# Check https://aistudio.google.com/rate-limit for live quotas.
+METADATA_MODEL = "gemini-3.5-flash-lite"
+METADATA_FALLBACK_MODELS = [
+    "gemini-3.1-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.8-flash",
+]
+METADATA_FRAMES_PER_CLIP = 2  # frames sampled from each cut clip
+
+# Captions the model writes are used only where you left the clip line
+# without a quoted caption of your own. Yours always wins.
+METADATA_CAPTIONS = True
+
+# What happens to a caption YOU wrote on a clip line:
+#
+#   "polish"  the model rewrites it - your note is the FACTS, its job is
+#             the phrasing. "Mistakenly i fired the bees which started
+#             attacking me, use medkit to heel" becomes something short
+#             enough to read in the time the clip is on screen. It may
+#             not contradict you or add events you did not mention.
+#   "keep"    burned on screen exactly as typed. Empty slots still get
+#             an AI caption.
+#
+# Either way both versions are logged and land in seo.txt, so a rewrite
+# that changed your meaning is visible rather than silent.
+CAPTION_MODE = "polish"
+METADATA_TIMEOUT = 45        # seconds; a hung model should fail fast
+                             # so the chain can move to the next one
+METADATA_RETRIES = 3         # attempts before giving up
+
+
+# ---------------------------------------------------------------
+# THUMBNAIL
+# Built from the RAW recording at the moment the model picked, not from
+# the finished video: no blur bands, no reaction cam, no burnt-in
+# captions eating the frame. Cropped full bleed to 9:16 and captioned
+# with a few large words, because in a channel grid the video's own hook
+# text is far too small to read.
+# ---------------------------------------------------------------
+THUMBNAIL_LABEL_SIZE = 116
+THUMBNAIL_LABEL_WRAP = 14
+THUMBNAIL_LABEL_MAX_LINES = 3
+THUMBNAIL_LABEL_BORDER = 9
+THUMBNAIL_SCRIM = 0.45       # darkening behind the text, 0 to disable
+
+
+# ---------------------------------------------------------------
+# GAME LOGO
+# The game comes from a "# game:" line in the clips file. The logo is
+# assets/logos/<game-slug>.png - "Far Cry 5" looks for far_cry_5.png.
+# A missing logo is skipped with a log line, never an error: the same
+# rule the reaction cam and the music library already follow.
+#
+# On the video it sits under the hook title for the opening seconds
+# only, so it reads as a title card and then gets out of the way. On
+# the thumbnail it sits bottom centre, clear of the label scrim.
+# Widths are fractions of the frame width.
+# ---------------------------------------------------------------
+GAME_LOGO_ENABLED = True
+LOGO_VIDEO_WIDTH = 0.34
+LOGO_THUMBNAIL_WIDTH = 0.44
+LOGO_VIDEO_GAP = 28          # px between the hook text zone and the logo
+LOGO_THUMBNAIL_MARGIN = 90   # px from the bottom of the thumbnail

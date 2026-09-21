@@ -122,7 +122,7 @@ transitions overlap, so a clip's position is not a cumulative sum of
 durations. The reaction cam is per-clip and label-driven, so it stays in
 process.py. Both stages were already re-encoding, so neither adds a pass.
 
-**11. The pipeline never invents a title or a caption.**
+**11. The pipeline never invents text the owner cannot override.**
 Nothing in the code can see what happens in the footage. A series preset
 controls how a video LOOKS - grade, music, transitions - and says
 nothing about its content: running --series vehicle_test on a gunfight
@@ -130,9 +130,14 @@ clip for its grade is legitimate and must not relabel the clip. A
 hardcoded series hook once put "ULTIMATE GETAWAY VEHICLE TEST" over a
 gunfight in Fall's End. That is worse than no hook - a title that
 misdescribes the clip makes the viewer feel baited and bounce, costing
-the retention it was meant to buy. Titles and captions come from
-clips.txt or --title only. With neither, export warns loudly instead of
-filling the gap with a guess.
+the retention it was meant to buy.
+
+core/metadata.py may now draft captions, because a vision model reading
+actual frames is not guessing. It writes ONLY into caption slots left
+empty in clips.txt - a caption you wrote is never replaced - and its
+seo.txt draft is reviewed before upload. The hook title stays yours
+alone: it comes from "# title:" or --title, and with neither, export
+warns loudly instead of filling the gap.
 
 **12. Never put a path inside a filtergraph on Windows without checking it.**
 The drive colon reads as an option separator. `metadata=print:file=C:/...`

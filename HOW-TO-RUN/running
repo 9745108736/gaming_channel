@@ -1,0 +1,128 @@
+===========================================================
+ GAMECLIP - HOW TO MAKE A VIDEO
+===========================================================
+
+THE THREE STEPS
+---------------
+1. Drop the recording in  raw/
+2. Watch it and mark the good moments in a clips file  (MANUAL, by design)
+3. Run one command
+
+Everything after step 2 is automatic.
+
+
+THE COMMAND
+-----------
+  python main.py <recording> <clips file> --series <preset> --name <folder>
+
+Real examples:
+
+  python main.py raw/ghost_reocon.mkv clips_ghost.txt --series vehicle_test --name ghost_04
+
+  python main.py raw/session01.mkv clips.txt --series default --name farcry_07
+
+Output lands in  output/<date>_<name>/  containing:
+  video.mp4        the finished short
+  thumbnail.png    auto-picked representative frame
+  seo.txt          title, description, hashtags - built from YOUR clips file
+  clips_used.txt   what was used, in final order, with hook scores
+
+
+THE CLIPS FILE - the only part you write
+----------------------------------------
+  # game:  Ghost Recon Wildlands
+  # title: CHOPPER GUNRUN OVER BOLIVIA
+
+  01:52   02:05   driving     "Bolivian Highway Carnage!"
+  42:32   42:41   driving     "Ultimate Chopper Ambush"
+  43:25   43:53   explosion   "Wiping Out the Convoy"
+
+  START  END  LABEL  "optional caption"
+
+  - "# game:" picks the logo from assets/logos/<slug>.png and tells the
+    metadata AI which game it is looking at. "Far Cry 5" looks for
+    far_cry_5.png. Missing logo = skipped with a log line, never an error.
+  - Timestamps take 4:32 or 1:04:32
+  - "# title:" is the hook burned across the top. REQUIRED in practice -
+    without it the render warns, because nothing else can describe your
+    footage. The pipeline cannot see the video.
+  - The quoted caption shows in the top zone for that clip only
+  - Labels lowercase: DRIVING and driving become two different hashtags
+  - Aim for 4-6 clips of 8-12s. One long clip is the weakest possible
+    short, and hook detection needs more than one clip to do anything.
+
+
+THE OPTIONS
+-----------
+--series   Controls how the video LOOKS. Nothing else. It says nothing
+           about what is in the footage, so running vehicle_test on a
+           gunfight for its grade and music is perfectly fine.
+
+           default        tense music, fade,      normal grade
+           vehicle_test   hype music,  fast fade, punchy saturated grade
+           stealth        quiet tense, fadeblack, cold desaturated grade
+                          *** also uses the facecam_top layout, which is
+                              NOT yet proven on real footage - see below
+
+--name     Output folder name. Skip it and you get a timestamped one.
+
+--title    Same as "# title:" in the clips file, and overrides it.
+           Use the clips file normally - the title belongs with the
+           timestamps that describe the same video.
+
+--game     Overrides the "# game:" line for this run.
+
+--keep-work  Keeps the intermediate clips in .work/ so you can inspect
+             them when something looks wrong.
+
+
+WHAT HAPPENS AUTOMATICALLY
+--------------------------
+  cut       each clip cut, graded, converted to 9:16, reaction cam added
+            - all in ONE encode per clip
+  hook      every clip scored on motion + loudness
+  cold open the strongest clip's last 2.5s is teased at the very start,
+            and that clip STILL plays in full in its own place
+  join      clips joined with the series transition
+  audio     music picked from assets/music/<mood>/, ducked under gameplay
+  export    hook title at the start AND again over the closing seconds,
+            per-clip captions in between, thumbnail, seo.txt
+
+
+THE FRAME
+---------
+  0    -> 257    hook title / captions
+  257  -> 1139   gameplay
+  1155 -> 1623   your reaction cam
+  1640 -> 1920   NOTHING - YouTube and Instagram draw their own UI here
+
+Tune in config.py: GAMEPLAY_HEIGHT, TEXT_ZONE_SHARE, SAFE_BOTTOM,
+REACTION_HEIGHT, REACTION_ZOOM, COLD_OPEN_SECONDS, HOOK_OUTRO_SECONDS.
+
+
+GAME LOGOS
+----------
+Put transparent PNGs in assets/logos/, named after the game in lowercase
+with underscores:
+
+  assets/logos/far_cry_5.png
+  assets/logos/ghost_recon_wildlands.png
+
+They appear under the hook title for the first 3 seconds of the video,
+and bottom centre on the thumbnail. Any width works - both are scaled
+to a fixed fraction of the frame (LOGO_VIDEO_WIDTH, LOGO_THUMBNAIL_WIDTH).
+
+
+KNOWN GAPS
+----------
+- assets/logos/ is empty, so no game logo is drawn yet.
+- assets/overlays/ is empty, so hook text always uses drawtext. Drop in
+  <title-slug>.png or <series>.png to use a real graphic instead.
+- Only reactions_white_tshirt.mp4 is usable. reactions_black_tshirt.mp4
+  is 10s against a 20s segment table, so it is skipped every run and
+  there is no costume variety yet.
+- REACTION_MATCH_LABELS is False: every clip gets the same idle segment
+  regardless of its label.
+- Your reaction audio is dropped. REACTION_MUTE is a dead flag.
+- stealth's facecam_top layout has never been rendered with the real
+  landscape reaction video. Try it on a throwaway --name first.

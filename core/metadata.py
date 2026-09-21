@@ -1,18 +1,20 @@
 """
 AI metadata generation.
 
-Drafts seo.txt - the title, description and hashtags you paste into
-YouTube - by showing a vision model a few frames of the finished video
-together with the title and captions you already wrote.
+One call to a vision model, from frames of the cut clips, produces:
+  - a caption for each clip
+  - a short thumbnail label
+  - which frame is the most striking, for the thumbnail
+  - the title, description and hashtags for seo.txt
 
-This never touches the burned-in text on the video. A title drawn on
-screen has to be right the first time and costs retention when it is
-not; seo.txt is a draft you read before uploading, so a model writing
-it is a different kind of risk. See rule 11 in CLAUDE.md.
+Captions written in clips.txt always win over the model's. Rule 11 in
+CLAUDE.md used to forbid generated captions outright, on the grounds
+that nothing in the code could see the footage. A vision model reading
+actual frames changes that premise - but only for text the owner can
+still override, and a caption you wrote is never replaced.
 
 With no API key it degrades instead of failing: the frames and a
-ready-to-paste prompt are written into the output folder, so the step
-still produces something useful.
+ready-to-paste prompt land in the output folder.
 
 No pip dependency - the API is called over plain HTTPS with urllib.
 """
@@ -20,6 +22,9 @@ No pip dependency - the API is called over plain HTTPS with urllib.
 import base64
 import json
 import os
+import random
+import re
+import time
 import urllib.error
 import urllib.request
 
@@ -35,66 +40,104 @@ def api_key():
     return os.environ.get("GEMINI_API_KEY") or None
 
 
-def extract_frames(video_path, out_dir, count=None):
+def sample_clip_frames(clips, out_dir, per_clip=None):
     """
-    Sample frames evenly across the video.
+    Sample frames from each cut clip.
 
-    Deliberately skips the first and last fifth: the hook title covers
-    the top of the frame at both ends, and a frame of the title tells
-    the model nothing about the gameplay.
+    Returns [(clip_index, position, path)], where position is the
+    fraction through that clip - enough to re-extract the same moment
+    from the raw recording later at full quality.
     """
-    count = count or config.METADATA_FRAMES
-    duration = probe(video_path)["duration"]
+    per_clip = per_clip or config.METADATA_FRAMES_PER_CLIP
     out_dir.mkdir(parents=True, exist_ok=True)
 
     frames = []
-    for i in range(count):
-        # spread across the middle 60% of the runtime
-        pos = 0.2 + (0.6 * (i + 0.5) / count)
-        out = out_dir / f"frame_{i + 1:02d}.jpg"
-        run_ffmpeg(
-            ["-ss", f"{duration * pos:.3f}", "-i", str(video_path),
-             "-frames:v", "1", "-q:v", "3", "-update", "1", str(out)],
-            description=f"sampling frame {i + 1} for metadata",
-        )
-        frames.append(out)
+    for ci, clip in enumerate(clips):
+        duration = probe(clip.path)["duration"]
+        for j in range(per_clip):
+            pos = (j + 1) / (per_clip + 1)
+            out = out_dir / f"clip{ci + 1:02d}_{j + 1}.jpg"
+            run_ffmpeg(
+                ["-ss", f"{duration * pos:.3f}", "-i", str(clip.path),
+                 "-frames:v", "1", "-q:v", "3", "-update", "1", str(out)],
+                description=f"sampling frame for clip {ci + 1}",
+            )
+            frames.append((ci, pos, out))
     return frames
 
 
-def build_prompt(title, clips, series):
-    """The instruction text sent with the frames."""
-    captions = [c.caption for c in clips if getattr(c, "caption", None)]
-    labels = sorted({c.label for c in clips})
-
+def build_prompt(frames, clips, title, series, game=None, context=None):
+    """The instruction text. Frames are referenced by number."""
     lines = [
-        "You are writing upload metadata for a YouTube Short.",
+        "You are writing text for a YouTube Short made from a gamer's own",
+        "gameplay recording.",
         "",
-        "The attached images are frames from a gameplay clip recorded by",
-        "the channel owner. Look at them and write metadata that matches",
-        "WHAT YOU ACTUALLY SEE in the frames. Do not invent events, kills",
-        "or vehicles that are not visible. If the frames do not support a",
-        "claim, leave it out.",
+        "You will be shown numbered frames. Write only what the frames",
+        "actually show. Do not invent kills, vehicles or events that are",
+        "not visible. If the frames do not support a claim, leave it out.",
         "",
-        "Channel: Malabari Gamer - first person shooter gameplay shorts.",
-        f"Series preset used: {series} (this controls the look only, it",
-        "says nothing about the content).",
-        "",
-        "What the owner wrote about this video:",
-        f"  Working title: {title or '(none given)'}",
+        "Channel: Malabari Gamer - first person action gameplay shorts.",
+        f"Game: {game}." if game else "The game is not stated - identify it "
+                                      "from the frames if you can.",
+        f"Series preset: {series} (controls the look only, says nothing",
+        "about the content).",
+        f"Owner's working title: {title or '(none given)'}",
     ]
-    if captions:
-        lines.append("  On-screen captions, in order:")
-        lines += [f"    - {c}" for c in captions]
-    if labels:
-        lines.append(f"  Moment labels: {', '.join(labels)}")
+    if context:
+        lines += [
+            "",
+            "Facts the owner gave you about this recording. These are true -",
+            "use them, especially the location and what happened:",
+            f"  {context}",
+        ]
+    lines += [
+        "",
+        "NEVER name a specific in-game region, mission or landmark unless the",
+        "owner stated it above or it is legible on screen. Guessing wrong is",
+        "worse than staying general: describe the setting plainly instead",
+        "(a night forest road, a mountain bridge) when you do not know.",
+        "",
+        "The frames belong to these clips:",
+    ]
+    for ci, clip in enumerate(clips):
+        nums = [str(i + 1) for i, (c, _, _) in enumerate(frames) if c == ci]
+        own = f'  owner wrote: "{clip.caption}"' if clip.caption else ""
+        lines.append(f"  Clip {ci + 1}: frames {', '.join(nums)}"
+                     f"  label={clip.label}{own}")
 
     lines += [
         "",
-        "Return EXACTLY this format and nothing else:",
+        "Return EXACTLY this format and nothing else. One CAPTION line per",
+        f"clip, numbered 1 to {len(clips)}:",
         "",
-        "TITLE: <one line, under 80 characters, specific and punchy. No",
-        "clickbait the footage does not deliver.>",
-        "DESCRIPTION: <2 to 3 short lines describing what happens>",
+    ]
+    if config.CAPTION_MODE == "polish" and any(c.caption for c in clips):
+        lines += [
+            "Where a clip shows 'owner wrote', treat that note as the FACTS of",
+            "what happened - the owner was there and you were not. Rewrite it as",
+            "a short caption: keep its meaning, fix the grammar, cut it to six",
+            "words. Never contradict the note and never add events it does not",
+            "mention.",
+            "",
+        ]
+
+    for ci in range(len(clips)):
+        lines.append(
+            f"CAPTION {ci + 1}: <max 6 words. Make the viewer want to keep "
+            f"watching clip {ci + 1} - tension, stakes or a question, not a "
+            f"flat description of what is on screen. Ground it in the frames: "
+            f"never invent danger, kills or near misses that are not visible.>"
+        )
+    lines += [
+        "THUMBNAIL: <3 to 5 words, the single most dramatic thing on offer>",
+        "BEST_FRAME: <the number of the most visually striking frame>",
+        "TITLE: <one line under 80 characters, specific, no clickbait the "
+        "footage does not deliver>",
+        "DESCRIPTION: <3 to 4 lines. First line: what specifically happens. "
+        "Second: where it takes place - the region or landmark if the owner "
+        "gave it or it is on screen, otherwise the setting in plain words. "
+        "Third: why it is worth watching to the end. Concrete, not generic - "
+        "a line that could describe any clip of this game is wasted.>",
         "HASHTAGS: <8 to 12 space separated tags, each starting with #>",
     ]
     return "\n".join(lines)
@@ -102,21 +145,22 @@ def build_prompt(title, clips, series):
 
 def call_gemini(prompt, frames, key, model=None, timeout=None):
     """
-    Send the prompt and frames to Gemini. Returns the raw reply text.
+    Send the prompt and numbered frames to Gemini. Returns the reply text.
 
-    Raises RuntimeError with the API's own message on failure - the body
-    of an error response says what is actually wrong (bad key, unknown
-    model, quota) and swallowing it would leave you guessing.
+    Raises RuntimeError carrying the API's own message on failure - the
+    error body says what is actually wrong (bad key, retired model,
+    quota) and swallowing it would leave you guessing.
     """
     model = model or config.METADATA_MODEL
     timeout = timeout or config.METADATA_TIMEOUT
 
     parts = [{"text": prompt}]
-    for f in frames:
+    for i, (_, _, path) in enumerate(frames, start=1):
+        parts.append({"text": f"Frame {i}:"})
         parts.append({
             "inline_data": {
                 "mime_type": "image/jpeg",
-                "data": base64.b64encode(f.read_bytes()).decode("ascii"),
+                "data": base64.b64encode(path.read_bytes()).decode("ascii"),
             }
         })
 
@@ -142,77 +186,177 @@ def call_gemini(prompt, frames, key, model=None, timeout=None):
         raise RuntimeError(f"Unexpected Gemini response: {json.dumps(data)[:400]}")
 
 
-def parse_response(text):
-    """
-    Pull TITLE / DESCRIPTION / HASHTAGS out of the reply.
+# Failures that recover on their own. A stalled socket reports no HTTP
+# status at all ("read operation timed out", "Server disconnected"), so
+# matching only on status codes lets those fall straight through to a
+# crash instead of retrying like a 503 does.
+_TRANSIENT = (
+    "http 429", "http 500", "http 502", "http 503", "http 504",
+    "quota", "timed out", "timeout", "deadline_exceeded", "unavailable",
+    "disconnected", "connection", "overloaded", "high demand",
+    "request failed", "temporarily",
+)
 
-    Returns None if the title is missing, because a reply that did not
-    follow the format is more likely to be an apology or a refusal than
-    usable metadata, and writing that into seo.txt would be worse than
-    keeping the draft.
+# A retired model name never recovers, so the chain moves on immediately
+# rather than spending the whole retry budget proving it.
+_RETIRED = ("http 404", "not_found", "no longer available")
+
+
+def _matches(text, needles):
+    low = text.lower()
+    return any(n in low for n in needles)
+
+
+def call_with_fallback(prompt, frames, key, models=None, attempts=None):
     """
-    result = {"title": None, "description": [], "hashtags": ""}
+    Try each model in turn, retrying transient failures on each.
+
+    Three separate failure modes, handled differently because the right
+    response to each is different:
+
+      retired (404)   move to the next model at once - retrying a name
+                      Google has withdrawn can never succeed.
+      transient       retry the SAME model with growing backoff, since
+                      overload and timeouts do clear, then move on.
+      anything else   raise. A bad key or a malformed request will fail
+                      identically on every model in the chain.
+
+    The -lite models sit at the end of the chain but do the real work
+    when it matters: they are on a separate quota bucket from the flash
+    tier, so they answer while flash is returning "high demand" 503s.
+    """
+    models = models or [config.METADATA_MODEL, *config.METADATA_FALLBACK_MODELS]
+    attempts = attempts or config.METADATA_RETRIES
+    last = None
+
+    for index, model in enumerate(models):
+        for n in range(1, attempts + 1):
+            try:
+                reply = call_gemini(prompt, frames, key, model=model)
+                if index:
+                    print(f"  ! metadata AI answered on fallback model "
+                          f"{model}", flush=True)
+                return reply
+            except RuntimeError as exc:
+                last = exc
+                text = str(exc)
+
+                if _matches(text, _RETIRED):
+                    print(f"  ! {model} is retired, skipping it", flush=True)
+                    break
+                if not _matches(text, _TRANSIENT):
+                    raise
+                if n == attempts:
+                    break
+
+                # Longer than a plain doubling: an overloaded model needs
+                # real seconds to come back, and the jitter stops repeated
+                # renders from retrying in lockstep.
+                wait = 2 ** n + 8 + random.uniform(0, 1.5)
+                print(f"  ! {model} busy (attempt {n}/{attempts}), retrying "
+                      f"in {wait:.0f}s: {text[:90]}", flush=True)
+                time.sleep(wait)
+
+        if index + 1 < len(models):
+            print(f"  ! falling back to {models[index + 1]}", flush=True)
+
+    raise last
+
+
+def parse_response(text, clip_count):
+    """
+    Pull the fields out of the reply.
+
+    Returns None when the title is missing: a reply that ignored the
+    format is more likely an apology or a refusal than usable text, and
+    writing that over the owner's own words would be worse than nothing.
+    """
+    out = {"captions": {}, "thumbnail": None, "best_frame": None,
+           "title": None, "description": [], "hashtags": ""}
     section = None
 
     for raw in text.splitlines():
         line = raw.strip().lstrip("*").strip()
         upper = line.upper()
-        if upper.startswith("TITLE:"):
-            result["title"] = line[6:].strip()
-            section = "title"
+
+        m = re.match(r"CAPTION\s+(\d+)\s*:\s*(.+)", line, re.IGNORECASE)
+        if m:
+            idx = int(m.group(1)) - 1
+            if 0 <= idx < clip_count:
+                out["captions"][idx] = m.group(2).strip().strip('"')
+            section = None
+            continue
+
+        if upper.startswith("THUMBNAIL:"):
+            out["thumbnail"] = line[10:].strip().strip('"')
+            section = None
+        elif upper.startswith("BEST_FRAME:"):
+            digits = re.search(r"\d+", line[11:])
+            if digits:
+                out["best_frame"] = int(digits.group()) - 1
+            section = None
+        elif upper.startswith("TITLE:"):
+            out["title"] = line[6:].strip()
+            section = None
         elif upper.startswith("DESCRIPTION:"):
             rest = line[12:].strip()
             if rest:
-                result["description"].append(rest)
+                out["description"].append(rest)
             section = "description"
         elif upper.startswith("HASHTAGS:"):
-            result["hashtags"] = line[9:].strip()
+            out["hashtags"] = line[9:].strip()
             section = "hashtags"
         elif not line:
             continue
         elif section == "description":
-            result["description"].append(line)
+            out["description"].append(line)
         elif section == "hashtags":
-            result["hashtags"] = (result["hashtags"] + " " + line).strip()
+            out["hashtags"] = (out["hashtags"] + " " + line).strip()
 
-    return result if result["title"] else None
+    return out if out["title"] else None
 
 
-def generate(video_path, out_dir, title, clips, series):
+def analyze(clips, out_dir, title, series, game=None, context=None):
     """
-    Draft the metadata. Returns a dict, or None if it could not.
+    One pass over the cut clips. Returns the parsed result, or None.
 
-    Falls back to writing seo_prompt.txt next to the frames so the step
-    still leaves you something to paste into an AI by hand.
+    Falls back to writing seo_prompt.txt beside the frames so the step
+    still leaves something to paste into an AI by hand.
     """
     if not config.METADATA_AI_ENABLED:
         return None
 
-    frames_dir = out_dir / "frames"
-    frames = extract_frames(video_path, frames_dir)
-    prompt = build_prompt(title, clips, series)
+    frames = sample_clip_frames(clips, out_dir / "frames")
+    prompt = build_prompt(frames, clips, title, series, game, context)
 
     key = api_key()
     if not key:
         (out_dir / "seo_prompt.txt").write_text(prompt + "\n", encoding="utf-8")
         print("  ! no GEMINI_API_KEY - wrote seo_prompt.txt and frames/ "
-              "instead. Paste them into any AI and copy the answer into "
-              "seo.txt.", flush=True)
+              "instead. Paste them into any AI and copy the answer back.",
+              flush=True)
         return None
 
     try:
-        reply = call_gemini(prompt, frames, key)
+        reply = call_with_fallback(prompt, frames, key)
     except RuntimeError as exc:
         (out_dir / "seo_prompt.txt").write_text(prompt + "\n", encoding="utf-8")
-        print(f"  ! metadata AI failed, keeping your draft: {exc}", flush=True)
-        print("  ! wrote seo_prompt.txt and frames/ so you can do it by hand.",
-              flush=True)
+        print(f"  ! metadata AI failed, keeping your own text: {exc}", flush=True)
         return None
 
-    parsed = parse_response(reply)
+    parsed = parse_response(reply, len(clips))
     if parsed is None:
         (out_dir / "seo_reply.txt").write_text(reply + "\n", encoding="utf-8")
         print("  ! metadata AI reply did not match the expected format, "
-              "keeping your draft. Raw reply saved to seo_reply.txt.",
+              "keeping your own text. Raw reply saved to seo_reply.txt.",
               flush=True)
+        return None
+
+    # Map the chosen frame back to (clip index, position in that clip) so
+    # the thumbnail can be re-cut from the raw recording at full quality.
+    if parsed["best_frame"] is not None and 0 <= parsed["best_frame"] < len(frames):
+        ci, pos, _ = frames[parsed["best_frame"]]
+        parsed["best"] = (ci, pos)
+    else:
+        parsed["best"] = None
     return parsed

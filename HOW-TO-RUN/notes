@@ -1,0 +1,26 @@
+Face on top use this comman 21 9 26
+
+python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --series stealth --layout facecam_top --name myvideo
+
+
+
+python main.py raw/ghost_reocon.mkv clips_ghost.txt --series vehicle_test --name ghost_04
+
+
+preset	music	transition	grade
+default	tense	fade 0.4s	normal
+vehicle_test	hype	fade 0.3s	punchy, saturated
+stealth	quiet tense	fadeblack 0.5s	cold, desaturated
+
+
+
+
+To run full width(camera on top/bottom) normal run
+
+
+To show blur effect
+python main.py raw/ghost_reocon.mkv clips_ghost_helicoptor.txt --series stealth --layout blur_band --name test01092full
+
+
+python main.py raw/ghost_reocon.mkv clips_ghost_helicoptor.txt --series stealth --layout blur_band --name test01092full
+
