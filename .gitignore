@@ -6,3 +6,11 @@ __pycache__/
 # API keys live here and must never be committed.
 .env
 /raw/
+
+# Reaction cam source recordings: one long .mov per costume, ~75 MB each.
+# Local assets, not code - GitHub rejects files over 100 MB and these add
+# no value to a clone.
+/assets/reactions/
+
+# JetBrains per-machine IDE state.
+/.idea/
