@@ -66,7 +66,8 @@ def sample_clip_frames(clips, out_dir, per_clip=None):
     return frames
 
 
-def build_prompt(frames, clips, title, series, game=None, context=None):
+def build_prompt(frames, clips, title, series, game=None, context=None,
+                 mission=None):
     """The instruction text. Frames are referenced by number."""
     lines = [
         "You are writing text for a YouTube Short made from a gamer's own",
@@ -83,6 +84,14 @@ def build_prompt(frames, clips, title, series, game=None, context=None):
         "about the content).",
         f"Owner's working title: {title or '(none given)'}",
     ]
+    if mission:
+        lines += [
+            "",
+            f"Mission / location: {mission}",
+            "This is the SEARCH TERM. People type a mission name into YouTube,",
+            "not 'gameplay'. It must appear in the TITLE and get its own",
+            "hashtag. Never alter or shorten it.",
+        ]
     if context:
         lines += [
             "",
@@ -131,14 +140,21 @@ def build_prompt(frames, clips, title, series, game=None, context=None):
     lines += [
         "THUMBNAIL: <3 to 5 words, the single most dramatic thing on offer>",
         "BEST_FRAME: <the number of the most visually striking frame>",
-        "TITLE: <one line under 80 characters, specific, no clickbait the "
-        "footage does not deliver>",
+        "TITLE: <one line under 80 characters. If a mission or location was "
+        "given above it MUST appear word for word - that is what people "
+        "search. A shape that works: '<Game> <Mission Name> - <what "
+        "happens>'. Specific, and no clickbait the footage does not "
+        "deliver.>",
         "DESCRIPTION: <3 to 4 lines. First line: what specifically happens. "
         "Second: where it takes place - the region or landmark if the owner "
         "gave it or it is on screen, otherwise the setting in plain words. "
         "Third: why it is worth watching to the end. Concrete, not generic - "
         "a line that could describe any clip of this game is wasted.>",
-        "HASHTAGS: <8 to 12 space separated tags, each starting with #>",
+        "HASHTAGS: <8 to 12 space separated tags. Lead with the ones people "
+        "actually search: the game, the mission or location name, the region, "
+        "and intent words that fit what the frames show - walkthrough, guide, "
+        "location, stash, secret. Generic tags like #gaming or #gamerlife are "
+        "filler: at most two of those, at the end.>",
     ]
     return "\n".join(lines)
 
@@ -316,7 +332,8 @@ def parse_response(text, clip_count):
     return out if out["title"] else None
 
 
-def analyze(clips, out_dir, title, series, game=None, context=None):
+def analyze(clips, out_dir, title, series, game=None, context=None,
+            mission=None):
     """
     One pass over the cut clips. Returns the parsed result, or None.
 
@@ -327,7 +344,8 @@ def analyze(clips, out_dir, title, series, game=None, context=None):
         return None
 
     frames = sample_clip_frames(clips, out_dir / "frames")
-    prompt = build_prompt(frames, clips, title, series, game, context)
+    prompt = build_prompt(frames, clips, title, series, game, context,
+                          mission)
 
     key = api_key()
     if not key:

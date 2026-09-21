@@ -6,16 +6,43 @@ python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --seri
 python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --series stealth --layout gameplay_only --name myvideo
 
 
+
+
+
+layout	                source width kept	 blur	face
+blur_band (default)	        69%	             yes	bubble
+facecam_top	                40%	             yes	top strip
+gameplay_only           	55%	             yes	none
+full_width	                100%	         yes	bubble
+fullscreen	                32%	             no	none
+
+
+
+This layout is best without face
+python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --series vehicle_test --layout gameplay_only --name ghost_042111fameonly
+
+
+-------------------------
+
+****
 Gameplay only, no face:
+this will come a blur on top and bottom
 
-python main.py raw/ghost_reocon.mkv clips_ghost.txt --series vehicle_test --name ghost_04
+python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --series vehicle_test --layout gameplay_only --name ghost_0421
+this one working
 
+***************
+
+-------------------------
 Full horizontal gameplay, no zoom, blur top and bottom:
+
+python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --series vehicle_test --layout full_width --name ghost_0421
+
 
 python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --series stealth --layout full_width --name myvideo
 
-
-
+*********************
+------------------------------
 
 preset	music	transition	grade
 default	tense	fade 0.4s	normal
@@ -33,4 +60,3 @@ python main.py raw/ghost_reocon.mkv clips_ghost_helicoptor.txt --series stealth 
 
 
 python main.py raw/ghost_reocon.mkv clips_ghost_helicoptor.txt --series stealth --layout blur_band --name test01092full
-

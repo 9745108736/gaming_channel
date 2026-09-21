@@ -65,6 +65,21 @@ def plan(mode=None, gameplay_height=None, facecam_height=None):
     """
     mode = mode or config.DEFAULT_LAYOUT
 
+    if mode == config.LAYOUT_FULLSCREEN:
+        # Gameplay fills the whole frame: no blur, no face, nothing but
+        # the game. There is no empty zone to put text in, so the text
+        # band sits over the top of the gameplay the way facecam_top's
+        # does. Filling 9:16 from a 16:9 source is the harshest crop of
+        # any layout - roughly two thirds of the width goes.
+        return {
+            "mode": mode,
+            "band": (0, config.HEIGHT),
+            "text": (0, config.FACECAM_TEXT_BAND),
+            "cam_zone": (0, 0),
+            "cam_style": None,
+            "logo_y": config.FACECAM_TEXT_BAND + config.LOGO_VIDEO_GAP,
+        }
+
     if mode == config.LAYOUT_GAMEPLAY_ONLY:
         # No face, so the gameplay takes the room the cam would have had.
         # Still not the whole frame: text needs a zone, and a taller band
@@ -117,7 +132,8 @@ def plan(mode=None, gameplay_height=None, facecam_height=None):
         raise ValueError(
             f"Unknown layout '{mode}'. Known: "
             f"{config.LAYOUT_BLUR_BAND}, {config.LAYOUT_FACECAM_TOP}, "
-            f"{config.LAYOUT_GAMEPLAY_ONLY}, {config.LAYOUT_FULL_WIDTH}"
+            f"{config.LAYOUT_GAMEPLAY_ONLY}, {config.LAYOUT_FULL_WIDTH}, "
+            f"{config.LAYOUT_FULLSCREEN}"
         )
 
     band = band_height(gameplay_height)

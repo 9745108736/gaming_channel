@@ -65,6 +65,12 @@ def build_filter_chain(preset, plan):
             f"[strip][gp]vstack,{tail}"
         )
 
+    if plan["mode"] == config.LAYOUT_FULLSCREEN:
+        # Straight crop to fill, no blur layer at all - the gameplay
+        # covers every pixel, so there is nothing for filler to fill.
+        return (f"{prefix}scale={W}:{H}:force_original_aspect_ratio=increase,"
+                f"crop={W}:{H},{tail}")
+
     if preset.get("vertical_mode") == "crop":
         # Crop the middle. Fills the frame fully but loses the sides.
         # Good for close combat, bad for driving or landscape shots.

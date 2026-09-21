@@ -1,4 +1,5 @@
 # game: Far Cry 5
+# mission: Vespiary Prepper Stash
 # title: THE BEES ALMOST KILLED ME
 
 # context: Holland Valley region, an abandoned grain elevator swarming with wasp
@@ -9,6 +10,6 @@
 #   I ziplined out from the tower roof.
 
 04:20   04:29   findloot     "Getting in to house to house"
-04:29   04:56   gun fire    "Mistakenly i fired the bees which started attacking me, use medkit to heel"
+04:29   04:56   gunfire     "Mistakenly i fired the bees which started attacking me, use medkit to heel"
 04:58   05:11   loot    "Starting loot and not touched any bees any more"
-05:10   05:22   fire use to kill    "Fire used to kill bees and started looting"
+05:11   05:22   firekill            "Fire used to kill bees and started looting"

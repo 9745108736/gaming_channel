@@ -29,7 +29,7 @@ from core import join as join_mod
 from core import metadata as metadata_mod
 from core import process as process_mod
 from core.clips import (parse_clips_file, parse_title, parse_game,
-                        parse_context)
+                        parse_context, parse_mission)
 from core.ffmpeg_utils import FFmpegError, probe
 
 
@@ -54,7 +54,8 @@ def build_video(source, clips_file, series="default", name=None,
     preset = dict(preset)
     if layout:
         known = (config.LAYOUT_BLUR_BAND, config.LAYOUT_FACECAM_TOP,
-                 config.LAYOUT_GAMEPLAY_ONLY, config.LAYOUT_FULL_WIDTH)
+                 config.LAYOUT_GAMEPLAY_ONLY, config.LAYOUT_FULL_WIDTH,
+                 config.LAYOUT_FULLSCREEN)
         if layout not in known:
             raise ValueError(
                 f"Unknown layout '{layout}'. Available: {', '.join(known)}"
@@ -73,6 +74,9 @@ def build_video(source, clips_file, series="default", name=None,
     # Facts only you know - region, mission, what actually happened.
     # The model can read pixels but cannot know where it is.
     context = parse_context(clips_file)
+    # The mission name is the search term - nothing in the frames
+    # spells it out, so it can only come from the clips file.
+    mission = parse_mission(clips_file)
     logo = export_mod.find_game_logo(game)
     if game:
         log("input", f"game: {game}"
@@ -136,7 +140,7 @@ def build_video(source, clips_file, series="default", name=None,
         if config.METADATA_AI_ENABLED:
             log("ai", "reading the clips to write captions and metadata")
             ai = metadata_mod.analyze(clips, out_dir, title, series, game,
-                                      context)
+                                      context, mission)
 
         if ai:
             if ai.get("best"):
@@ -399,7 +403,8 @@ def main():
                         choices=[config.LAYOUT_BLUR_BAND,
                                  config.LAYOUT_FACECAM_TOP,
                                  config.LAYOUT_GAMEPLAY_ONLY,
-                                 config.LAYOUT_FULL_WIDTH],
+                                 config.LAYOUT_FULL_WIDTH,
+                                 config.LAYOUT_FULLSCREEN],
                         help="override the series layout for this run")
     parser.add_argument("--keep-work", action="store_true",
                         help="keep intermediate files for debugging")

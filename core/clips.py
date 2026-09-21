@@ -18,7 +18,9 @@ Blank lines and lines starting with # are ignored, except directives:
 
     # title:   <hook text burned across the top of the video>
     # game:    <which game, picks assets/logos/<slug>.png>
-    # context: <facts only you know: region, mission, what happened.
+    # mission: <in-game mission, stash or location name - the thing
+    #           people actually search for>
+    # context: <facts only you know: region, what happened.
     #           The metadata AI uses these instead of guessing.>
 
 The title lives here, next to the timestamps, because this file is the
@@ -110,6 +112,18 @@ def parse_context(path):
     is the same bait problem as a title that misdescribes the clip.
     """
     return parse_directive(path, "context")
+
+
+def parse_mission(path):
+    """
+    The "# mission:" directive - the in-game mission, stash or location.
+
+    "Vespiary Prepper Stash", "Rye & Sons Aviation". This is the highest
+    value search term a gaming video has: people type the mission name
+    into YouTube, not "gameplay". Nothing in the frames spells it out,
+    so it has to come from you.
+    """
+    return parse_directive(path, "mission")
 
 
 def parse_game(path):

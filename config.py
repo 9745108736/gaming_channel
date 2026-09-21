@@ -114,6 +114,7 @@ LAYOUT_BLUR_BAND = "blur_band"
 LAYOUT_FACECAM_TOP = "facecam_top"
 LAYOUT_GAMEPLAY_ONLY = "gameplay_only"   # no face at all
 LAYOUT_FULL_WIDTH = "full_width"         # whole 16:9, no punch in
+LAYOUT_FULLSCREEN = "fullscreen"         # gameplay edge to edge, no blur, no face
 # facecam_top is the default: the face is on screen the whole video and
 # no frame space goes to blurred filler. It costs horizontal FOV - see
 # the note above - so blur_band stays available per series or with
