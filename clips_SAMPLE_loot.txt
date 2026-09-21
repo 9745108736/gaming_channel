@@ -1,0 +1,29 @@
+# ===========================================================
+# SAMPLE - copy this file and change the timestamps
+# ===========================================================
+
+# game: Far Cry 5
+
+# The BIG TEXT on screen. Written by you, never changed by the AI.
+# Keep it short and make it a reason to keep watching.
+# title: RAIDING THE CULT HOUSE
+
+# What the AI cannot see. Region, what happened, why it matters.
+# Long lines continue with "#" + TWO spaces, like the two below.
+# context: Holland Valley region, a cult-occupied farmhouse off the main road.
+#   I sneaked in through the back while two cultists patrolled the porch, took
+#   them out quietly, then looted the safe and the stash upstairs. A third
+#   cultist walked in on me and I had to fight my way back out to the truck.
+
+# ===========================================================
+#  START   END     LABEL       "caption"   <- caption is OPTIONAL
+#  Leave the caption off and the AI writes it for you.
+#  LABEL must be ONE word. Good ones: gunfight, explosion, chase,
+#  kill, close_call, fail, funny, loot, stealth
+# ===========================================================
+
+12:04   12:15   stealth      "Sneaking in the back way"
+12:40   12:51   kill
+13:15   13:27   loot         "The safe was worth it"
+13:50   14:02   close_call
+14:20   14:33   gunfight

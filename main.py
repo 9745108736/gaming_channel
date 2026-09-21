@@ -53,7 +53,8 @@ def build_video(source, clips_file, series="default", name=None,
     # the same process.
     preset = dict(preset)
     if layout:
-        known = (config.LAYOUT_BLUR_BAND, config.LAYOUT_FACECAM_TOP)
+        known = (config.LAYOUT_BLUR_BAND, config.LAYOUT_FACECAM_TOP,
+                 config.LAYOUT_GAMEPLAY_ONLY, config.LAYOUT_FULL_WIDTH)
         if layout not in known:
             raise ValueError(
                 f"Unknown layout '{layout}'. Available: {', '.join(known)}"
@@ -395,8 +396,10 @@ def main():
                         help="game name; overrides the '# game:' line in "
                              "the clips file and picks assets/logos/<slug>.png")
     parser.add_argument("--layout", default=None,
-                        choices=[config.LAYOUT_FACECAM_TOP,
-                                 config.LAYOUT_BLUR_BAND],
+                        choices=[config.LAYOUT_BLUR_BAND,
+                                 config.LAYOUT_FACECAM_TOP,
+                                 config.LAYOUT_GAMEPLAY_ONLY,
+                                 config.LAYOUT_FULL_WIDTH],
                         help="override the series layout for this run")
     parser.add_argument("--keep-work", action="store_true",
                         help="keep intermediate files for debugging")

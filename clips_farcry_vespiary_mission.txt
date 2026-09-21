@@ -1,0 +1,14 @@
+# game: Far Cry 5
+# title: THE BEES ALMOST KILLED ME
+
+# context: Holland Valley region, an abandoned grain elevator swarming with wasp
+#   nests. I climbed onto the tin roof and smashed through a high window to get
+#   inside, then parkoured up the broken rafters while dodging the hives. I
+#   accidentally shot a nest and the swarm came for me - had to burn them out
+#   with fire and heal up. After looting the stash and perk magazines at the top,
+#   I ziplined out from the tower roof.
+
+04:20   04:29   findloot     "Getting in to house to house"
+04:29   04:56   gun fire    "Mistakenly i fired the bees which started attacking me, use medkit to heel"
+04:58   05:11   loot    "Starting loot and not touched any bees any more"
+05:10   05:22   fire use to kill    "Fire used to kill bees and started looting"

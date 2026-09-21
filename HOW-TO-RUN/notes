@@ -3,8 +3,18 @@ Face on top use this comman 21 9 26
 python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --series stealth --layout facecam_top --name myvideo
 
 
+python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --series stealth --layout gameplay_only --name myvideo
+
+
+Gameplay only, no face:
 
 python main.py raw/ghost_reocon.mkv clips_ghost.txt --series vehicle_test --name ghost_04
+
+Full horizontal gameplay, no zoom, blur top and bottom:
+
+python main.py raw/vespiary_mission.mkv clips_farcry_vespiary_mission.txt --series stealth --layout full_width --name myvideo
+
+
 
 
 preset	music	transition	grade

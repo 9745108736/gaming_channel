@@ -1,0 +1,19 @@
+# Ghost Recon Wildlands - session raw/ghost_reocon.mkv (49:00 long)
+#
+# Format:  START  END  LABEL  "optional caption"
+# Labels:  gunfight, explosion, chase, fail, close_call, funny, kill
+#
+# The title below is burned across the top for the first 3 seconds and
+# again over the closing seconds. It must describe THIS video - nothing
+# in the pipeline can see the footage. Captions show in the top zone for
+# their own clip.
+#
+# Labels are lowercase: "DRIVING" and "driving" are different strings and
+# would come out of seo.txt as two separate hashtags.
+
+# title: CHOPPER GUNRUN OVER BOLIVIA
+
+01:52   02:05   driving     "Bolivian Highway Carnage!"
+42:32   42:41   driving     "Ultimate Chopper Ambush"
+43:00   43:10   driving     "Bolivian Highway Carnage!"
+43:25   43:53   explosion   "Wiping Out the Convoy"

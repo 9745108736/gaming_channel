@@ -1,0 +1,19 @@
+# Ghost Recon Wildlands - session raw/ghost_reocon.mkv (49:00 long)
+#
+# Format:  START  END  LABEL  "optional caption"
+# Labels:  gunfight, explosion, chase, fail, close_call, funny, kill
+#
+# The title below is burned across the top for the first 3 seconds and
+# again over the closing seconds. It must describe THIS video - nothing
+# in the pipeline can see the footage. Captions show in the top zone for
+# their own clip.
+#
+# Labels are lowercase: "DRIVING" and "driving" are different strings and
+# would come out of seo.txt as two separate hashtags.
+
+# game: Ghost Recon Wildlands
+# title: CHOPPER GUNRUN OVER BOLIVIA
+
+26:42   27:05   driving     "Gun firing on a helicopter and driving"
+27:18   27:52   driving     "Car drifting to escape from helicopter fun firing"
+28:30   28:49   gun firing     "helicopter get damaged "

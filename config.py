@@ -112,6 +112,8 @@ TEXT_ZONE_SHARE = 0.34
 # ---------------------------------------------------------------
 LAYOUT_BLUR_BAND = "blur_band"
 LAYOUT_FACECAM_TOP = "facecam_top"
+LAYOUT_GAMEPLAY_ONLY = "gameplay_only"   # no face at all
+LAYOUT_FULL_WIDTH = "full_width"         # whole 16:9, no punch in
 # facecam_top is the default: the face is on screen the whole video and
 # no frame space goes to blurred filler. It costs horizontal FOV - see
 # the note above - so blur_band stays available per series or with
@@ -119,6 +121,11 @@ LAYOUT_FACECAM_TOP = "facecam_top"
 DEFAULT_LAYOUT = LAYOUT_BLUR_BAND
 
 FACECAM_HEIGHT = 0.20      # fraction of frame height for the top strip
+
+# gameplay_only has no cam to make room for, so the band takes more of
+# the frame. It is still a punch in - a taller band always costs
+# horizontal field of view - just a gentler one than facecam_top.
+GAMEPLAY_ONLY_HEIGHT = 0.58
 FACECAM_TEXT_BAND = 300    # px under the strip where hook and captions sit
 
 

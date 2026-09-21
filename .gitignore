@@ -5,3 +5,4 @@ __pycache__/
 
 # API keys live here and must never be committed.
 .env
+/raw/

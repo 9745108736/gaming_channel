@@ -1,0 +1,19 @@
+# Ghost Recon Wildlands - session raw/ghost_reocon.mkv (49:00 long)
+#
+# Format:  START  END  LABEL  "optional caption"
+# Labels:  gunfight, explosion, chase, fail, close_call, funny, kill
+#
+# The title below is burned across the top for the first 3 seconds and
+# again over the closing seconds. It must describe THIS video - nothing
+# in the pipeline can see the footage. Captions show in the top zone for
+# their own clip.
+#
+# Labels are lowercase: "DRIVING" and "driving" are different strings and
+# would come out of seo.txt as two separate hashtags.
+
+# game: Far Cry 5
+# title: No Way Out Hold Off the cultists Survive Part 1
+
+08:15   08:36   escape     "Escape from bad people on a truck"
+09:12   10:25   road block     "Gun firing form vehicle, bad people chasing the car"
+

@@ -1,0 +1,15 @@
+# FarCry 5 - session raw/bear_fight.mkv (02:46 long)
+
+# game: Far Cry 5 
+
+# Labels:  gunfight, wildanimals, gunfight, bear_fight
+
+# title: Kill forest bear and save friends
+
+
+# game: FarCry 5
+# title: Find and kill bears inside forest
+
+01:39   02:09   hunting "Search next bears to kill"     
+02:09   02:41   hunting "Got killed one more bear using sniper"     
+

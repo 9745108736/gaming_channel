@@ -291,7 +291,9 @@ def process_clip(source, clip, preset, out_path, reaction_video=None):
     vf = build_filter_chain(preset, plan)
 
     name, segment = reaction_segment(clip.label)
-    use_cam = bool(reaction_video and segment)
+    # cam_style None means the layout has no reaction cam at all,
+    # so there is nothing to composite however many variants exist.
+    use_cam = bool(reaction_video and segment and plan["cam_style"])
     if reaction_video and not segment:
         print(f"  ! no REACTION_SEGMENTS entry for '{name}' "
               f"(label '{clip.label}') - skipping the reaction cam.", flush=True)

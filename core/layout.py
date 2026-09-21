@@ -56,13 +56,48 @@ def plan(mode=None, gameplay_height=None, facecam_height=None):
       band        (y, h) of the gameplay
       text        (y, h) of the zone hook text and captions centre in
       cam_zone    (y, h) of the space the reaction cam occupies
-      cam_style   "strip" - full width, always on
+      cam_style   "strip"  - full width, always on
                   "bubble" - centred, bordered, sized by REACTION_HEIGHT
+                  None     - no reaction cam in this layout at all
       logo_y      y for the top of the game logo, directly under the
                   text zone. Only on screen during the opening hook, so
                   it is allowed to sit over the gameplay.
     """
     mode = mode or config.DEFAULT_LAYOUT
+
+    if mode == config.LAYOUT_GAMEPLAY_ONLY:
+        # No face, so the gameplay takes the room the cam would have had.
+        # Still not the whole frame: text needs a zone, and a taller band
+        # means a harder horizontal crop.
+        frac = (config.GAMEPLAY_ONLY_HEIGHT if gameplay_height is None
+                else gameplay_height)
+        band = int(config.HEIGHT * frac) // 2 * 2
+        top = (usable_height() - band) // 2
+        return {
+            "mode": mode,
+            "band": (top, band),
+            "text": (0, top),
+            "cam_zone": (top + band, usable_height() - top - band),
+            "cam_style": None,
+            "logo_y": top + config.LOGO_VIDEO_GAP,
+        }
+
+    if mode == config.LAYOUT_FULL_WIDTH:
+        # The whole 16:9 frame, untouched: no punch in, no cropped sides.
+        # Height follows from the width, so GAMEPLAY_HEIGHT does not
+        # apply here - preserving the full field of view is the point.
+        band = int(config.WIDTH * 9 / 16) // 2 * 2
+        spare = usable_height() - band
+        top = int(spare * config.TEXT_ZONE_SHARE)
+        bottom_y = top + band
+        return {
+            "mode": mode,
+            "band": (top, band),
+            "text": (0, top),
+            "cam_zone": (bottom_y, usable_height() - bottom_y),
+            "cam_style": "bubble",
+            "logo_y": top + config.LOGO_VIDEO_GAP,
+        }
 
     if mode == config.LAYOUT_FACECAM_TOP:
         frac = config.FACECAM_HEIGHT if facecam_height is None else facecam_height
@@ -81,7 +116,8 @@ def plan(mode=None, gameplay_height=None, facecam_height=None):
     if mode != config.LAYOUT_BLUR_BAND:
         raise ValueError(
             f"Unknown layout '{mode}'. Known: "
-            f"{config.LAYOUT_BLUR_BAND}, {config.LAYOUT_FACECAM_TOP}"
+            f"{config.LAYOUT_BLUR_BAND}, {config.LAYOUT_FACECAM_TOP}, "
+            f"{config.LAYOUT_GAMEPLAY_ONLY}, {config.LAYOUT_FULL_WIDTH}"
         )
 
     band = band_height(gameplay_height)
