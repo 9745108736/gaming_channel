@@ -464,6 +464,7 @@ THUMBNAIL_LABEL_WRAP = 14
 THUMBNAIL_LABEL_MAX_LINES = 3
 THUMBNAIL_LABEL_BORDER = 9
 THUMBNAIL_SCRIM = 0.45       # darkening behind the text, 0 to disable
+THUMBNAIL_TEXT_BAND = 0.34   # fraction of frame height the title block gets
 
 
 # ---------------------------------------------------------------
@@ -474,12 +475,52 @@ THUMBNAIL_SCRIM = 0.45       # darkening behind the text, 0 to disable
 # rule the reaction cam and the music library already follow.
 #
 # On the video it sits under the hook title for the opening seconds
-# only, so it reads as a title card and then gets out of the way. On
-# the thumbnail it sits bottom centre, clear of the label scrim.
-# Widths are fractions of the frame width.
+# only, so it reads as a title card and then gets out of the way.
+#
+# On the thumbnail it sits ABOVE the title, inside the same scrim.
+# Bottom centre was the old placement and it was the wrong end of the
+# frame: the channel grid renders a thumbnail barely 280px wide, the
+# eye goes to the title, and the foot of the frame is where the grid
+# paints its own view count. A logo down there is decoration nobody
+# reads. Grouped with the title it reads as one title card - the same
+# shape the video's own opening uses, and the same shape as the best
+# performing thumbnail on the channel.
+#
+# Widths are fractions of the frame width, and are a CEILING rather
+# than a target: see export.logo_size().
 # ---------------------------------------------------------------
 GAME_LOGO_ENABLED = True
 LOGO_VIDEO_WIDTH = 0.34
 LOGO_THUMBNAIL_WIDTH = 0.44
 LOGO_VIDEO_GAP = 28          # px between the hook text zone and the logo
-LOGO_THUMBNAIL_MARGIN = 90   # px from the bottom of the thumbnail
+LOGO_THUMBNAIL_POSITION = "top"   # "top" (above the title) or "bottom"
+LOGO_THUMBNAIL_MARGIN = 90   # px from the frame edge the logo sits on
+LOGO_THUMBNAIL_GAP = 28      # px between the logo and the title below it
+
+
+# ---------------------------------------------------------------
+# GAME LOGO WATERMARK
+# The title card above is a card: it plays over the opening seconds and
+# leaves. Anyone who scrolls in halfway through has then no idea what
+# game they are watching, and on Shorts most of the audience arrives
+# mid-clip. So a second, much smaller copy of the same logo stays up
+# for the WHOLE video - the broadcast "bug" every sports channel runs
+# in the corner for exactly this reason.
+#
+# It is small and dimmed on purpose. A watermark competing with the
+# gameplay is worse than none: the viewer came for the game.
+#
+# Placement is layout.watermark_xy(), which keeps it above the platform
+# safe line. See rule 9 - the bottom SAFE_BOTTOM pixels are painted over
+# by the app's own caption and buttons, so a watermark parked there is
+# invisible on a phone no matter how good it looks on a desktop player.
+# In the layouts with a gameplay band (blur_band, gameplay_only,
+# full_width) it lands in the filler BELOW the band, so it covers no
+# gameplay at all; in the full bleed layouts (facecam_top, fullscreen)
+# it is a corner bug over the picture, which is where one belongs.
+# ---------------------------------------------------------------
+LOGO_WATERMARK_ENABLED = True
+LOGO_WATERMARK_WIDTH = 0.17      # fraction of frame width; a ceiling, as above
+LOGO_WATERMARK_OPACITY = 0.62    # 1.0 is fully opaque
+LOGO_WATERMARK_MARGIN = 26       # px from the frame edge and the safe line
+LOGO_WATERMARK_CORNER = "bottom_right"   # bottom_right, bottom_left, bottom_center

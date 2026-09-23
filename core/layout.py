@@ -23,7 +23,8 @@ because gameplay is background there; nothing that carries meaning sits
 in the covered strip.
 
 process.py draws the gameplay and the reaction cam, export.py draws the
-hook and captions. Both read plan() from here. If either computes its own
+hook, the captions and the persistent logo watermark. Both read plan()
+from here. If either computes its own
 geometry they drift, and the text lands on the gameplay.
 """
 
@@ -45,6 +46,64 @@ def band_height(fraction=None):
 def usable_height():
     """Frame height minus the strip the platform covers with its own UI."""
     return config.HEIGHT - config.SAFE_BOTTOM
+
+
+def watermark_xy(plan, w, h, corner=None):
+    """
+    Top-left (x, y) for the persistent logo watermark.
+
+    Anchored to the safe line rather than the bottom of the frame. The
+    frame is 1920 tall but only the top usable_height() of it is ever
+    seen - park a watermark at H-h-margin and it renders perfectly and
+    then sits behind the app's caption and buttons on every phone. That
+    is the same mistake rule 9 was written about, and it costs nothing
+    to get right: measure up from the safe line, not from the frame.
+
+    In the band layouts this puts it in the filler strip under the
+    gameplay, so it covers no gameplay at all. In the full bleed
+    layouts (facecam_top, fullscreen) there is no filler, so it is a
+    corner bug over the picture - small and dimmed, which is why
+    LOGO_WATERMARK_OPACITY exists.
+    """
+    corner = corner or config.LOGO_WATERMARK_CORNER
+    margin = config.LOGO_WATERMARK_MARGIN
+
+    y = usable_height() - h - margin
+
+    if corner == "bottom_left":
+        x = margin
+    elif corner == "bottom_center":
+        x = (config.WIDTH - w) // 2
+    elif corner == "bottom_right":
+        x = config.WIDTH - w - margin
+    else:
+        raise ValueError(
+            f"Unknown LOGO_WATERMARK_CORNER '{corner}'. Known: "
+            f"bottom_right, bottom_left, bottom_center"
+        )
+
+    return x, y
+
+
+def watermark_over_cam(plan, w, h, corner=None):
+    """
+    True when the watermark would land on top of the reaction cam.
+
+    Only a rectangle overlap test against cam_zone, deliberately: the
+    bubble's own size is worked out in process.py and repeating that
+    sum here is how two modules drift apart. A zone overlap is enough
+    to tell the owner to move one of the two, which is the only useful
+    answer anyway.
+    """
+    if not plan["cam_style"] or not config.REACTION_ENABLED:
+        return False
+
+    zone_y, zone_h = plan["cam_zone"]
+    if zone_h <= 0:
+        return False
+
+    _, y = watermark_xy(plan, w, h, corner)
+    return y < zone_y + zone_h and y + h > zone_y
 
 
 def plan(mode=None, gameplay_height=None, facecam_height=None):

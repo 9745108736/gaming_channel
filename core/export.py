@@ -290,6 +290,43 @@ def find_game_logo(game):
     return None
 
 
+def logo_size(logo, fraction, what="logo"):
+    """
+    Pixel (width, height) for a logo, capped at its OWN native width.
+
+    The width fractions in config are a ceiling, not a target. Asking
+    for 44% of a 1080 frame means 475px, and far_cry_5.png is only
+    243px wide - scaling it up just spread the same pixels over twice
+    the area and gave the soft, fuzzy edges on every Far Cry thumbnail.
+    A logo rendered small and sharp reads better at channel-grid size
+    than a big blurry one, so we never upscale. Drop in a higher
+    resolution PNG and it fills the fraction on its own.
+
+    Returns both dimensions rather than letting ffmpeg work the height
+    out with -2, because the thumbnail has to know how tall the logo is
+    to lay the title out underneath it. Both are forced even: yuv420p
+    subsamples chroma by two and rejects odd dimensions.
+    """
+    want = int(config.WIDTH * fraction)
+    info = probe(logo)
+    native_w, native_h = info.get("width"), info.get("height")
+    if not native_w or not native_h:
+        # Fail rather than guess. A logo that will not probe is a broken
+        # file, and the alternative is a filtergraph that dies later
+        # with a far less obvious message.
+        raise ValueError(f"could not read the size of {logo}")
+
+    width = min(want, native_w)
+    if width < want:
+        print(f"  ! {logo.name} is only {native_w}px wide, so {what} "
+              f"renders at {width}px instead of {want}px rather than "
+              f"upscaling. Replace it with a larger PNG to fill the frame.",
+              flush=True)
+
+    height = round(width * native_h / native_w)
+    return max(2, width // 2 * 2), max(2, height // 2 * 2)
+
+
 def final_export(video_path, out_path, title=None, series=None,
                  plan=None, captions=None, game=None):
     """
@@ -351,6 +388,8 @@ def final_export(video_path, out_path, title=None, series=None,
     logo = find_game_logo(game)
     if logo is not None:
         note += f" +logo {logo.name}"
+        if config.LOGO_WATERMARK_ENABLED:
+            note += " +watermark"
 
     args = ["-i", str(video_path)]
 
@@ -374,11 +413,12 @@ def final_export(video_path, out_path, title=None, series=None,
 
     if logo is not None:
         args += ["-i", str(logo)]
-        width = int(config.WIDTH * config.LOGO_VIDEO_WIDTH) // 2 * 2
+        width, height = logo_size(logo, config.LOGO_VIDEO_WIDTH,
+                                  "the title card logo")
         # Scaled to a fixed width so every game's logo lands the same
-        # size whatever the source file happens to be. -2 keeps the
-        # height even, which yuv420p requires.
-        segments.append(f"[{next_input}:v]scale={width}:-2[logo]")
+        # size whatever the source file happens to be - capped at its
+        # own native width, because upscaling only spreads the pixels.
+        segments.append(f"[{next_input}:v]scale={width}:{height}[logo]")
         # Only the opening window, not hook_enable's closing reprise:
         # this is a title card, and by the end the viewer knows the game.
         opening = hook_windows(duration)[0]
@@ -387,6 +427,35 @@ def final_export(video_path, out_path, title=None, series=None,
             f"enable='between(t,{opening[0]:.3f},{opening[1]:.3f})'[logoed]"
         )
         stream = "[logoed]"
+        next_input += 1
+
+    if logo is not None and config.LOGO_WATERMARK_ENABLED:
+        # The same PNG a second time. One input split two ways would
+        # save a decode of a file measured in kilobytes, and cost the
+        # next reader the job of working out which branch is which.
+        args += ["-i", str(logo)]
+        mark_w, mark_h = logo_size(logo, config.LOGO_WATERMARK_WIDTH,
+                                   "the watermark")
+        mark_x, mark_y = layout.watermark_xy(plan, mark_w, mark_h)
+
+        if layout.watermark_over_cam(plan, mark_w, mark_h):
+            print(f"  ! the {config.LOGO_WATERMARK_CORNER} watermark lands in "
+                  f"the reaction cam's zone, so it may sit on the face. Move "
+                  f"it with LOGO_WATERMARK_CORNER, or turn one of the two "
+                  f"off.", flush=True)
+
+        # format=rgba first: colorchannelmixer can only dim an alpha
+        # channel that exists, and a PNG saved without transparency
+        # arrives as rgb24, where aa= is silently ignored and the
+        # watermark renders at full strength over the gameplay.
+        segments.append(
+            f"[{next_input}:v]scale={mark_w}:{mark_h},format=rgba,"
+            f"colorchannelmixer=aa={config.LOGO_WATERMARK_OPACITY}[mark]"
+        )
+        # No enable=, unlike the title card: the whole point is that it
+        # is still there for someone who scrolled in at the halfway mark.
+        segments.append(f"{stream}[mark]overlay={mark_x}:{mark_y}[marked]")
+        stream = "[marked]"
         next_input += 1
 
     if segments:
@@ -438,8 +507,26 @@ def render_thumbnail(source, timestamp, label, preset, out_path, game=None):
 
     The label is drawn much larger than the video's own hook text: in a
     grid the hook is far too small to read.
+
+    The game logo goes ABOVE the label, inside the same scrim, so the
+    two read as one title card. See the LOGO_THUMBNAIL_POSITION note in
+    config for why it is not at the foot of the frame any more.
     """
     W, H = config.WIDTH, config.HEIGHT
+
+    # Resolved before anything is drawn, because with the logo on top
+    # the title is laid out around it: how tall the logo renders decides
+    # where the first line of text starts and how far the scrim reaches.
+    logo = find_game_logo(game)
+    logo_w = logo_h = 0
+    logo_on_top = False
+    if logo is not None:
+        logo_w, logo_h = logo_size(logo, config.LOGO_THUMBNAIL_WIDTH,
+                                   "the thumbnail logo")
+        logo_on_top = config.LOGO_THUMBNAIL_POSITION == "top"
+
+    logo_y = (config.LOGO_THUMBNAIL_MARGIN if logo_on_top
+              else H - logo_h - config.LOGO_THUMBNAIL_MARGIN)
 
     parts = []
     if preset.get("eq"):
@@ -451,12 +538,38 @@ def render_thumbnail(source, timestamp, label, preset, out_path, game=None):
     tmp = None
     font = Path(config.HOOK_TEXT_FONT)
     if label and font.exists():
-        band = int(H * 0.34)
+        text_band = int(H * config.THUMBNAIL_TEXT_BAND)
+
+        if logo_on_top:
+            text_top = logo_y + logo_h + config.LOGO_THUMBNAIL_GAP
+            # The title keeps the band it always had, less what the logo
+            # block took off the top. fit_text shrinks the words to suit
+            # rather than dropping any, so a tall logo costs font size,
+            # never words. The floor stops an oversized logo from
+            # squeezing the zone down to nothing.
+            zone_h = max(config.TEXT_MIN_SIZE * 2, text_band - text_top)
+        else:
+            text_top = 0
+            zone_h = text_band - 40
+
         # Same fitting as the video text: shrink rather than drop words.
         lines, label_size = fit_text(str(label).upper(),
                                      config.THUMBNAIL_LABEL_SIZE,
                                      config.THUMBNAIL_LABEL_MAX_LINES,
-                                     band - 40)
+                                     zone_h)
+
+        if logo_on_top:
+            # 1.18 is fit_text's own line-height estimate, reused so the
+            # scrim is sized to the block it actually covers instead of a
+            # fixed third of the frame. A short title then darkens less
+            # gameplay, and a long one is never clipped by the scrim edge.
+            block_h = int(len(lines) * label_size * 1.18)
+            band = min(H, text_top + block_h + config.LOGO_THUMBNAIL_MARGIN)
+            text_y = f"{text_top}+({block_h}-text_h)/2"
+        else:
+            band = text_band
+            text_y = f"({band}-text_h)/2"
+
         if config.THUMBNAIL_SCRIM:
             # Darken behind the text so it stays readable over a bright sky.
             parts.append(f"drawbox=0:0:{W}:{band}:"
@@ -474,12 +587,11 @@ def render_thumbnail(source, timestamp, label, preset, out_path, game=None):
             f":fontcolor=white"
             f":borderw={config.THUMBNAIL_LABEL_BORDER}:bordercolor=black"
             f":line_spacing=14:text_align=C"
-            f":x=(w-text_w)/2:y=({band}-text_h)/2"
+            f":x=(w-text_w)/2:y={text_y}"
         )
 
     args = ["-ss", f"{timestamp:.3f}", "-i", str(source)]
 
-    logo = find_game_logo(game)
     if logo is not None:
         args += ["-i", str(logo)]
 
@@ -493,15 +605,17 @@ def render_thumbnail(source, timestamp, label, preset, out_path, game=None):
         args += ["-vf", ",".join(parts)]
     else:
         # A second input means -filter_complex; -vf takes only one.
-        width = int(W * config.LOGO_THUMBNAIL_WIDTH) // 2 * 2
         args += [
             "-filter_complex",
             f"[0:v]{','.join(parts)}[base];"
-            f"[1:v]scale={width}:-2[logo];"
-            # Bottom centre: the label scrim owns the top third, and the
-            # action sits in the middle, so the foot of the frame is the
-            # only place a logo does not cover something that matters.
-            f"[base][logo]overlay=(W-w)/2:H-h-{config.LOGO_THUMBNAIL_MARGIN}[v]",
+            # Both dimensions are given rather than letting ffmpeg solve
+            # the height with -2, because the title above was positioned
+            # using this exact height - if ffmpeg rounded it differently
+            # the gap between the logo and the text would drift.
+            f"[1:v]scale={logo_w}:{logo_h}[logo];"
+            # Overlaid last so it sits over the scrim rather than under
+            # it, at an absolute y for the same reason as above.
+            f"[base][logo]overlay=(W-w)/2:{logo_y}[v]",
             "-map", "[v]",
         ]
 
