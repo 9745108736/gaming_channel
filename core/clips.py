@@ -2,17 +2,31 @@
 Reads your marked timestamps file.
 
 Format (one clip per line):
-    START  END  LABEL
+    START  END  [note]  ["caption"]
 
-Example:
+Everything after the two timestamps is YOUR NOTE, in plain words. It is
+not parsed, matched or truncated - it is handed to the metadata model as
+the facts of what happened, and the model turns it into a caption. Write
+as much or as little as you like:
+
     # title: THIS AMBUSH NEARLY ENDED ME
-    4:32   4:48   gunfight    "THEY HAD ME PINNED"
-    12:10  12:25  chase       "NO WAY OUT"
-    19:03  19:20  explosion
+    4:32   4:48   pinned behind the truck, two of them flanking
+    12:10  12:25  chase
+    19:03  19:20
 
-A clip may end with a quoted caption. It is shown in the top zone for
-that clip's whole time on screen, so the frame is not empty once the
-opening hook has gone. Captions are optional, per clip.
+The last line has no note at all, and that is a complete clip line: the
+model writes that caption from the frames alone. A note only exists to
+tell it what the frames cannot show - that you were low on health, that
+the chopper had been circling for a minute - because it was not there
+and you were.
+
+A trailing "quoted string" is an explicit caption instead of a note. Use
+it when you want those exact words on screen; CAPTION_MODE decides
+whether the model may rewrite them. A note is always rewritten, which is
+the point of writing one in rough.
+
+Captions show in the top zone for that clip's whole time on screen, so
+the frame is not empty once the opening hook has gone.
 
 Blank lines and lines starting with # are ignored, except directives:
 
@@ -35,14 +49,26 @@ from pathlib import Path
 
 from .ffmpeg_utils import timestamp_to_seconds
 
+# Where a caption came from, for the log in clips_used.txt. Worth
+# recording because the four are not equally trustworthy: "ai" was
+# written from pixels alone and is the one to re-read before upload.
+CAPTION_SOURCES = {
+    "yours":     "you wrote it, kept as typed",
+    "polished":  "you wrote it, the model rewrote the phrasing",
+    "note":      "written from your note",
+    "ai":        "written from the frames, you wrote nothing",
+}
+
 
 @dataclass
 class Clip:
     index: int
     start: float
     end: float
-    label: str
-    caption: str = None     # optional on-screen line for this clip
+    label: str              # first word of the note; only REACTION_MAP reads it
+    note: str = None        # your own words, handed to the metadata model
+    caption: str = None     # the on-screen line, yours or written from the note
+    caption_source: str = None   # who wrote it: see CAPTION_SOURCES
     score: float = 0.0      # filled in by hook detection
     path: Path = None       # filled in after cutting
 
@@ -162,11 +188,20 @@ def parse_clips_file(path):
         if len(parts) < 2:
             raise ValueError(
                 f"Line {line_no} in {path.name} is malformed: '{raw}'\n"
-                f"Expected: START END [LABEL]"
+                f"Expected: START END [note] [\"caption\"]"
             )
 
         start = timestamp_to_seconds(parts[0])
         end = timestamp_to_seconds(parts[1])
+
+        # EVERYTHING after the timestamps, not parts[2]. Taking one token
+        # silently threw away the rest of the line: "fire to helicoptor"
+        # became "fire", and since the note is what the metadata model is
+        # told about the clip, the detail you typed never reached the one
+        # thing that would have used it.
+        note = " ".join(parts[2:]) or None
+        # Still a single word, because REACTION_MAP is a dict lookup. It
+        # is the only thing that reads this; everything else wants note.
         label = parts[2] if len(parts) > 2 else "clip"
 
         if end <= start:
@@ -176,7 +211,8 @@ def parse_clips_file(path):
             )
 
         clips.append(Clip(index=len(clips) + 1, start=start, end=end,
-                          label=label, caption=caption))
+                          label=label, note=note, caption=caption,
+                          caption_source="yours" if caption else None))
 
     if not clips:
         raise ValueError(f"No clips found in {path}. Is the file empty?")

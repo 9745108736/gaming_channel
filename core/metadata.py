@@ -110,9 +110,12 @@ def build_prompt(frames, clips, title, series, game=None, context=None,
     ]
     for ci, clip in enumerate(clips):
         nums = [str(i + 1) for i, (c, _, _) in enumerate(frames) if c == ci]
-        own = f'  owner wrote: "{clip.caption}"' if clip.caption else ""
-        lines.append(f"  Clip {ci + 1}: frames {', '.join(nums)}"
-                     f"  label={clip.label}{own}")
+        # The whole note, not the one-word label. The note is the only
+        # thing in the run that knows what the frames cannot show.
+        hint = clip.caption or clip.note
+        own = (f'  owner note: "{hint}"' if hint
+               else "  (no note - write this one from the frames alone)")
+        lines.append(f"  Clip {ci + 1}: frames {', '.join(nums)}{own}")
 
     lines += [
         "",
@@ -120,13 +123,17 @@ def build_prompt(frames, clips, title, series, game=None, context=None,
         f"clip, numbered 1 to {len(clips)}:",
         "",
     ]
-    if config.CAPTION_MODE == "polish" and any(c.caption for c in clips):
+    if any(c.caption or c.note for c in clips):
         lines += [
-            "Where a clip shows 'owner wrote', treat that note as the FACTS of",
-            "what happened - the owner was there and you were not. Rewrite it as",
-            "a short caption: keep its meaning, fix the grammar, cut it to six",
-            "words. Never contradict the note and never add events it does not",
-            "mention.",
+            "Where a clip shows an 'owner note', treat it as the FACTS of what",
+            "happened - the owner was there and you were not. The note is",
+            "rough: it may be shorthand, misspelled or ungrammatical. Keep",
+            "every fact in it, fix the wording, and use the frames to sharpen",
+            "it into six words or fewer. Never contradict the note, and never",
+            "add events it does not mention and the frames do not show.",
+            "",
+            "Where a clip shows no note, write that caption from its frames",
+            "alone, and stay with what is plainly visible.",
             "",
         ]
 

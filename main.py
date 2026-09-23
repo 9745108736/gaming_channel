@@ -28,8 +28,8 @@ from core import hook as hook_mod
 from core import join as join_mod
 from core import metadata as metadata_mod
 from core import process as process_mod
-from core.clips import (parse_clips_file, parse_title, parse_game,
-                        parse_context, parse_mission)
+from core.clips import (CAPTION_SOURCES, parse_clips_file, parse_title,
+                        parse_game, parse_context, parse_mission)
 from core.ffmpeg_utils import FFmpegError, probe
 
 
@@ -158,7 +158,12 @@ def build_video(source, clips_file, series="default", name=None,
                     if not suggested:
                         continue
                     if not clip.caption:
+                        # Nothing quoted on this line. Either it was
+                        # written up from the note, or from the frames
+                        # alone - worth telling apart, because only the
+                        # second one had no facts of yours to work from.
                         clip.caption = suggested
+                        clip.caption_source = "note" if clip.note else "ai"
                         written += 1
                     elif polish:
                         # Your note carried the facts; this carries the
@@ -167,6 +172,7 @@ def build_video(source, clips_file, series="default", name=None,
                         log("ai", f'  clip {i + 1} yours:     "{clip.caption}"')
                         log("ai", f'  clip {i + 1} polished:  "{suggested}"')
                         clip.caption = suggested
+                        clip.caption_source = "polished"
                         written += 1
                     elif suggested != clip.caption:
                         log("ai", f'  clip {i + 1} suggested: "{suggested}"'
@@ -314,8 +320,26 @@ def write_clip_log(path, source, clips, series, track):
     for i, clip in enumerate(clips, start=1):
         lines.append(
             f"  {i}. {clip.start:7.2f}s - {clip.end:7.2f}s  "
-            f"[{clip.label}]  score={clip.score:.2f}"
+            f"score={clip.score:.2f}"
         )
+        if clip.note:
+            lines.append(f'        your note: {clip.note}')
+        if clip.caption:
+            # The source is the point of this line. A caption marked
+            # "ai" was written from pixels with nothing of yours behind
+            # it, so it is the one to re-read before the video goes up.
+            source = clip.caption_source or "yours"
+            lines.append(f'        on screen: "{clip.caption}"   '
+                         f"[{source}: {CAPTION_SOURCES.get(source, source)}]")
+        elif not clip.note:
+            lines.append("        (no note, no caption)")
+
+    lines += [
+        "",
+        "Caption sources:",
+    ]
+    for name, meaning in CAPTION_SOURCES.items():
+        lines.append(f"  {name:9s} {meaning}")
     path.write_text("\n".join(lines) + "\n")
 
 
@@ -331,12 +355,20 @@ def write_seo(path, series, clips, title, track, source, ai=None):
     is what fills the rest.
     """
     preset = config.SERIES.get(series, {})
-    labels = sorted({c.label for c in clips})
+    # The notes, for the human-readable summary at the bottom. Joined
+    # with a pipe, not a comma: a note is a sentence and usually has
+    # commas of its own, which ran the whole list together.
+    labels = sorted({c.note for c in clips if c.note})
 
     tags = list(config.HASHTAGS_COMMON)
     tags += [t for t in preset.get("hashtags", []) if t not in tags]
-    for label in labels:
-        tag = "#" + label.replace("_", "")
+    # Only a one-word note becomes a hashtag. "gunfight" is a tag;
+    # "pinned behind the truck" is prose, and #pinned would be a tag
+    # nobody searches built from the first word of a sentence.
+    for clip in clips:
+        if not clip.note or " " in clip.note:
+            continue
+        tag = "#" + clip.note.replace("_", "")
         if tag not in tags:
             tags.append(tag)
 
@@ -372,7 +404,7 @@ def write_seo(path, series, clips, title, track, source, ai=None):
         lines.append(f"Your title (on screen): {title}")
     lines += [
         f"Series: {series}",
-        f"Moments in this video: {', '.join(labels)}",
+        f"Moments in this video: {' | '.join(labels) or '(none noted)'}",
         f"Clips: {len(clips)}",
         f"Source: {source.name}",
         f"Music: {track or 'none'}",
